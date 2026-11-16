@@ -21,3 +21,57 @@ def test_health_reports_liveness_and_provider_summary() -> None:
     assert body["version"] == "0.1.0"
     assert body["provider"]["name"] == "glm"
     assert body["provider"]["model"] == "glm-5.3-flash"
+
+
+def test_cloud_provider_without_api_key_reports_not_configured() -> None:
+    client = make_client(
+        Settings(llm_provider="glm", llm_api_key=None, _env_file=None)
+    )
+
+    body = client.get("/api/health").json()
+
+    assert body["provider"]["api_key_configured"] is False
+    assert body["provider"]["status"] == "not_configured"
+
+
+def test_cloud_provider_with_api_key_reports_configured() -> None:
+    client = make_client(
+        Settings(llm_provider="glm", llm_api_key="secret", _env_file=None)
+    )
+
+    body = client.get("/api/health").json()
+
+    assert body["provider"]["api_key_configured"] is True
+    assert body["provider"]["status"] == "configured"
+
+
+def test_ollama_needs_no_key_and_reports_local_models() -> None:
+    client = make_client(Settings(llm_provider="ollama", _env_file=None))
+
+    body = client.get("/api/health").json()
+
+    provider = body["provider"]
+    assert provider["name"] == "ollama"
+    assert provider["model"] == "qwen3:8b"
+    assert provider["base_url"] == "http://localhost:11434"
+    assert provider["api_key_configured"] is True
+    assert provider["status"] == "configured"
+
+
+def test_openai_provider_reports_its_key_and_model() -> None:
+    client = make_client(
+        Settings(
+            llm_provider="openai",
+            llm_model="gpt-5",
+            llm_api_key="secret",
+            _env_file=None,
+        )
+    )
+
+    body = client.get("/api/health").json()
+
+    provider = body["provider"]
+    assert provider["name"] == "openai"
+    assert provider["model"] == "gpt-5"
+    assert provider["api_key_configured"] is True
+    assert provider["status"] == "configured"

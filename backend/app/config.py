@@ -21,6 +21,10 @@ class Settings(BaseSettings):
 
     llm_provider: Literal["glm", "openai", "ollama"] = "glm"
     llm_model: str = "glm-5.3-flash"
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_chat_model: str = "qwen3:8b"
 
 
 @lru_cache
