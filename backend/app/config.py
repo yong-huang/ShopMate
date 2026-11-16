@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "qwen3:8b"
+    embedding_provider: Literal["auto", "ollama", "glm", "none"] = "auto"
+    embedding_model: str = "bge-m3"
+    database_url: str = "sqlite+aiosqlite:///./data/shopmate.db"
+    session_idle_ttl_min: int = 15
+    backend_port: int = 8000
+    frontend_port: int = 3000
 
 
 @lru_cache
