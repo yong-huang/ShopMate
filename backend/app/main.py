@@ -1,6 +1,7 @@
 """FastAPI application entry point."""
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import health
 from app.config import Settings, get_settings
@@ -15,6 +16,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title="ShopMate API",
         version=APP_VERSION,
         description="Backend for the ShopMate conversational shopping assistant.",
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[f"http://localhost:{resolved_settings.frontend_port}"],
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
     app.state.settings = resolved_settings
     app.include_router(health.router, prefix="/api")

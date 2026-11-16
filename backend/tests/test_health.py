@@ -75,3 +75,24 @@ def test_openai_provider_reports_its_key_and_model() -> None:
     assert provider["model"] == "gpt-5"
     assert provider["api_key_configured"] is True
     assert provider["status"] == "configured"
+
+
+def test_health_allows_cross_origin_calls_from_the_frontend() -> None:
+    client = make_client(Settings(frontend_port=3000, _env_file=None))
+
+    response = client.get(
+        "/api/health", headers={"Origin": "http://localhost:3000"}
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+def test_cors_origin_follows_configured_frontend_port() -> None:
+    client = make_client(Settings(frontend_port=3100, _env_file=None))
+
+    response = client.get(
+        "/api/health", headers={"Origin": "http://localhost:3100"}
+    )
+
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3100"
