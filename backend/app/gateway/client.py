@@ -8,17 +8,27 @@ The client streams SSE chat completions and yields ``ChatEvent`` values:
 
 import json
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import httpx
 
 from app.config import Settings
-from app.gateway.events import ChatEvent, FinishEvent, TokenDeltaEvent
+from app.gateway.events import ChatEvent, FinishEvent, TokenDeltaEvent, ToolCallEvent
 from app.gateway.messages import ChatMessage
 from app.gateway.providers import ResolvedEndpoint, resolve_endpoint
-from app.gateway.tools import ToolSpec
+from app.gateway.tools import ToolCall, ToolSpec
 
 DEFAULT_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+
+
+@dataclass
+class _PendingToolCall:
+    """Accumulates the streamed fragments of one tool call (keyed by index)."""
+
+    id: str | None = None
+    name_parts: list[str] = field(default_factory=list)
+    argument_parts: list[str] = field(default_factory=list)
 
 
 class ChatClient(Protocol):
@@ -65,6 +75,7 @@ class OpenAICompatChatClient(ChatClient):
             headers["Authorization"] = f"Bearer {self._endpoint.api_key}"
 
         finish_reason: str | None = None
+        pending_calls: dict[int, _PendingToolCall] = {}
         async with self._http.stream(
             "POST", self._endpoint.chat_url, headers=headers, json=body
         ) as response:
@@ -84,8 +95,43 @@ class OpenAICompatChatClient(ChatClient):
                 text = delta.get("content")
                 if text:
                     yield TokenDeltaEvent(text=text)
+                for call_delta in delta.get("tool_calls") or []:
+                    index = call_delta.get("index", 0)
+                    pending = pending_calls.setdefault(index, _PendingToolCall())
+                    if call_delta.get("id"):
+                        pending.id = call_delta["id"]
+                    function = call_delta.get("function") or {}
+                    if function.get("name"):
+                        pending.name_parts.append(function["name"])
+                    if function.get("arguments"):
+                        pending.argument_parts.append(function["arguments"])
                 finish_reason = choices[0].get("finish_reason") or finish_reason
+        for call in _assemble_tool_calls(pending_calls):
+            yield ToolCallEvent(call=call)
         yield FinishEvent(finish_reason=finish_reason)
+
+
+def _assemble_tool_calls(pending_calls: dict[int, _PendingToolCall]) -> list[ToolCall]:
+    """Join streamed fragments into complete tool calls.
+
+    Calls whose arguments do not parse as a JSON object (or that lack a
+    function name) are malformed and dropped here — the degradation tracker
+    in ``stream`` counts such attempts so the agent layer can degrade
+    honestly instead of executing a hallucinated call.
+    """
+    valid_calls: list[ToolCall] = []
+    for index in sorted(pending_calls):
+        pending = pending_calls[index]
+        name = "".join(pending.name_parts)
+        raw_arguments = "".join(pending.argument_parts) or "{}"
+        try:
+            arguments = json.loads(raw_arguments)
+        except ValueError:
+            continue
+        if not name or not isinstance(arguments, dict):
+            continue
+        valid_calls.append(ToolCall(id=pending.id, name=name, arguments=arguments))
+    return valid_calls
 
 
 def create_chat_client(

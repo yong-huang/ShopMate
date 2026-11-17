@@ -31,6 +31,41 @@ def content_delta(text: str, finish_reason: str | None = None) -> dict[str, Any]
     }
 
 
+def tool_call_delta(
+    index: int = 0,
+    id: str | None = None,
+    name: str | None = None,
+    arguments: str | None = None,
+) -> dict[str, Any]:
+    """One chat-completions chunk carrying a tool-call delta fragment."""
+    function: dict[str, Any] = {}
+    if name is not None:
+        function["name"] = name
+    if arguments is not None:
+        function["arguments"] = arguments
+    entry: dict[str, Any] = {"index": index, "function": function}
+    if id is not None:
+        entry["id"] = id
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "test-model",
+        "choices": [{"index": 0, "delta": {"tool_calls": [entry]}, "finish_reason": None}],
+    }
+
+
+def finish_chunk(finish_reason: str = "stop") -> dict[str, Any]:
+    """The terminal chat-completions chunk (empty delta, finish reason set)."""
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "test-model",
+        "choices": [{"index": 0, "delta": {}, "finish_reason": finish_reason}],
+    }
+
+
 def sse_response(chunks: list[dict[str, Any]], status_code: int = 200) -> httpx.Response:
     """Build a streaming ``text/event-stream`` response replaying ``chunks``."""
     lines = [f"data: {json.dumps(chunk, separators=(',', ':'))}" for chunk in chunks]
