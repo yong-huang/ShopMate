@@ -2,8 +2,9 @@
 
 Delivers the v1 chat tables — ``users`` (anonymous, cookie-linked),
 ``sessions``, and ``messages`` (logs + eval source) — plus the ``profiles``
-table (T07). Cart/order tables belong to T06 and are added to
-``Base.metadata`` there.
+table (T07) and the cart/order tables (T06): ``carts`` / ``cart_items`` /
+``orders`` / ``order_items`` (order lines snapshot name + unit price at
+purchase time, System Design 3.8).
 
 The chat endpoint (T04) is the primary consumer of the chat tables: it maps
 the ``shopmate_sid`` cookie to a ``users`` row, opens ``sessions`` per
@@ -91,6 +92,58 @@ class Profile(Base):
     interaction_log: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     field_sources: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     updated_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class Cart(Base):
+    """One shopper's cart (System Design 3.8 ``carts``; user_id is the PK)."""
+
+    __tablename__ = "carts"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    updated_at: Mapped[datetime | None] = mapped_column(default=None)
+
+
+class CartItem(Base):
+    """One cart line (System Design 3.8 ``cart_items``; variant JSON)."""
+
+    __tablename__ = "cart_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    cart_id: Mapped[str] = mapped_column(ForeignKey("carts.user_id"))
+    product_id: Mapped[str] = mapped_column(String(64))
+    quantity: Mapped[int] = mapped_column(default=1)
+    variant: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+
+
+class Order(Base):
+    """A demo order (System Design 3.8 ``orders``; status ``demo_paid``)."""
+
+    __tablename__ = "orders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    total: Mapped[float] = mapped_column(default=0.0)
+    currency: Mapped[str] = mapped_column(String(8), default="USD")
+    status: Mapped[str] = mapped_column(String(16), default="demo_paid")
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class OrderItem(Base):
+    """One order line with the purchase-time snapshot (3.8 ``order_items``).
+
+    ``name_snapshot`` / ``unit_price`` are frozen when the order is written —
+    later catalog changes never rewrite order history.
+    """
+
+    __tablename__ = "order_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"))
+    product_id: Mapped[str] = mapped_column(String(64))
+    name_snapshot: Mapped[str] = mapped_column(Text)
+    unit_price: Mapped[float] = mapped_column(default=0.0)
+    quantity: Mapped[int] = mapped_column(default=1)
+    variant: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
 
 
 def create_engine_and_sessionmaker(
