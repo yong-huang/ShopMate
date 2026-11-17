@@ -91,9 +91,17 @@ _TOP_KEYS: tuple[str, ...] = (
     "seed_cart",
     "judge_min",
     "turns",
+    "actions",
 )
 
 _TURN_KEYS: tuple[str, ...] = ("user", "expect")
+
+# Harness actions between turns (documented extension to §2.2, needed for the
+# personalization taxonomy): ``end_session`` closes the chat session and
+# drains the scheduled profile extraction (cross-session recall);
+# ``clear_profile`` DELETEs /api/profile (profile-clear behavior). Both run
+# after the 1-based ``after_turn`` turn, before the next one.
+ACTION_TYPES: tuple[str, ...] = ("end_session", "clear_profile")
 
 _CART_ITEM_KEYS: tuple[str, ...] = ("product_id", "quantity", "variant")
 
@@ -217,6 +225,14 @@ class Turn:
 
 
 @dataclass
+class ScenarioAction:
+    """A harness action executed between two turns (see ACTION_TYPES)."""
+
+    after_turn: int  # 1-based turn index; runs after that turn completes
+    type: str
+
+
+@dataclass
 class Scenario:
     """One golden-set conversation (§2.2 file format)."""
 
@@ -228,7 +244,14 @@ class Scenario:
     seed_cart: list[CartItemExpect]
     judge_min: float  # §2.3: per-dimension judge minimum (default 3/5)
     turns: list[Turn]
+    actions: list[ScenarioAction] = field(default_factory=list)
     source: str = ""  # file path the scenario was loaded from
+
+    def __post_init__(self) -> None:
+        # Tolerate the dict form in hand-built scenarios (tests, harness
+        # code): normalize seed_cart items exactly as the loader does.
+        if self.seed_cart and isinstance(self.seed_cart[0], dict):
+            self.seed_cart = _parse_cart_items(self.seed_cart, "<scenario>.seed_cart")
 
     @property
     def has_tool_expectations(self) -> bool:
@@ -365,6 +388,26 @@ def scenario_from_dict(data: object, name: str = "<scenario>", source: str = "")
         expect = _parse_expect(turn_raw.get("expect"), name, f"{turn_where}.expect")
         turns.append(Turn(user=user, expect=expect))
 
+    actions_raw = data.get("actions", [])
+    _check_type(actions_raw, list, f"{name}.actions")
+    actions: list[ScenarioAction] = []
+    for index, action_raw in enumerate(actions_raw):
+        action_where = f"{name}.actions[{index}]"
+        _check_type(action_raw, dict, action_where)
+        _check_keys(action_raw, ("after_turn", "type"), action_where)
+        after_turn = _opt_int(action_raw.get("after_turn"), f"{action_where}.after_turn")
+        if after_turn is None or not 1 <= after_turn < len(turns):
+            raise ScenarioError(
+                f"{action_where}.after_turn must be a 1-based turn index below "
+                f"{len(turns)} (an action must be followed by another turn), got {after_turn}"
+            )
+        action_type = action_raw.get("type")
+        if action_type not in ACTION_TYPES:
+            raise ScenarioError(
+                f"{action_where}.type must be one of {list(ACTION_TYPES)}, got {action_type!r}"
+            )
+        actions.append(ScenarioAction(after_turn=after_turn, type=action_type))
+
     return Scenario(
         id=scenario_id,
         category=category,
@@ -374,6 +417,7 @@ def scenario_from_dict(data: object, name: str = "<scenario>", source: str = "")
         seed_cart=seed_cart,
         judge_min=judge_min,
         turns=turns,
+        actions=actions,
         source=source,
     )
 

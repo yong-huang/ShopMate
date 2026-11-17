@@ -37,16 +37,25 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.agent.cards import ProductCardPayload
+from app.agent.cards import ProductCardPayload, _CARD_BLOCK
 from app.catalog.adapter import CatalogAdapter
 from evals.schema import CartExpect, Turn, TurnExpect
 
 CJK_RATIO_ZH_THRESHOLD = 0.2  # mirrors app.api.chat._detect_language
 
 
+def strip_card_blocks(text: str) -> str:
+    """The reply as the shopper sees it: ``product-card`` fences removed.
+
+    The frontend strips card blocks before display, so language detection
+    must not let ASCII card JSON dilute the CJK ratio of a Chinese reply.
+    """
+    return _CARD_BLOCK.sub("", text)
+
+
 def detect_language(text: str) -> str | None:
     """The production CJK-ratio heuristic: zh at ≥ 0.2 CJK share, else en."""
-    stripped = text.strip()
+    stripped = strip_card_blocks(text).strip()
     if not stripped:
         return None
     cjk = sum(1 for char in stripped if "\u4e00" <= char <= "\u9fff")
