@@ -8,6 +8,9 @@ tools belong to T06. Executors return a ``ToolOutput``: the honest
 cards, comparison matrices) attached at tool-execution time.
 """
 
+def _noop_executor(_arguments, _context=None) -> None:
+    return None
+
 import json
 
 from app.agent.tools import MAX_TOOL_HOPS, ToolRegistry, ToolOutput, tool_registry
@@ -52,8 +55,8 @@ def test_registry_advertises_every_registered_spec_in_order():
     registry = ToolRegistry()
     first = ToolSpec(name="tool_a", description="A", parameters={"type": "object"})
     second = ToolSpec(name="tool_b", description="B", parameters={"type": "object"})
-    registry.register(first, lambda arguments: None)  # type: ignore[arg-type]
-    registry.register(second, lambda arguments: None)  # type: ignore[arg-type]
+    registry.register(first, _noop_executor)
+    registry.register(second, _noop_executor)
 
     assert [spec.name for spec in registry.specs()] == ["tool_a", "tool_b"]
 
@@ -63,7 +66,7 @@ async def test_executor_returning_tool_output_keeps_structured_payloads():
     registry = ToolRegistry()
     spec = ToolSpec(name="structured", description="S", parameters={"type": "object"})
 
-    async def executor(_arguments):
+    async def executor(_arguments, _context=None):
         return ToolOutput(content="found", ok=True, cards=[{"product_id": "X"}])
 
     registry.register(spec, executor)
@@ -76,7 +79,7 @@ async def test_executor_returning_plain_tuple_is_normalized_to_tool_output():
     registry = ToolRegistry()
     spec = ToolSpec(name="plain", description="P", parameters={"type": "object"})
 
-    async def executor(_arguments):
+    async def executor(_arguments, _context=None):
         return "plain result", True
 
     registry.register(spec, executor)

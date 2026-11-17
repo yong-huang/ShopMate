@@ -41,19 +41,26 @@ class ToolOutput:
 
     ``content``/``ok`` are what the model sees; ``cards`` and ``comparison``
     are structured payloads for the guardrail + SSE layers (empty/None for
-    plain tools).
+    plain tools). ``cart_summary`` (T06) carries the fresh cart state after a
+    cart-affecting tool ran — it becomes the SSE ``cart_update`` event (3.7).
     """
 
     content: str
     ok: bool
     cards: list[dict[str, Any]] = field(default_factory=list)
     comparison: dict[str, Any] | None = None
+    cart_summary: dict[str, Any] | None = None
 
 
-Executor = Callable[[dict[str, Any]], Awaitable[tuple[str, bool] | ToolOutput]]
+# ``context`` carries per-turn identity the model never sees: the anonymous
+# shopper (``user_id``) and the chat session (``session_id``) the tools node
+# passes through from the request. Plain tools ignore it.
+Executor = Callable[[dict[str, Any], dict[str, Any] | None], Awaitable[tuple[str, bool] | ToolOutput]]
 
 
-async def _store_info_executor(_arguments: dict[str, Any]) -> tuple[str, bool]:
+async def _store_info_executor(
+    _arguments: dict[str, Any], _context: dict[str, Any] | None = None
+) -> tuple[str, bool]:
     return STORE_INFO_BLURB, True
 
 
@@ -71,7 +78,9 @@ class ToolRegistry:
     def specs(self) -> list[ToolSpec]:
         return list(self._specs.values())
 
-    async def execute(self, name: str, arguments: dict[str, Any]) -> ToolOutput:
+    async def execute(
+        self, name: str, arguments: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> ToolOutput:
         """Run one tool call; unknown tools fail honestly instead of raising."""
         executor = self._executors.get(name)
         if executor is None:
@@ -79,7 +88,7 @@ class ToolRegistry:
                 content=f"Error: tool '{name}' is not available in this environment.",
                 ok=False,
             )
-        result = await executor(arguments)
+        result = await executor(arguments, context)
         if isinstance(result, ToolOutput):
             return result
         content, ok = result

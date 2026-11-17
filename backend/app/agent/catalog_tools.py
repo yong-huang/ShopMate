@@ -138,7 +138,9 @@ class CatalogTools:
         """Attach the retrieval index once it is built (app lifespan)."""
         self._index = index
 
-    async def search_products(self, arguments: dict[str, Any]) -> ToolOutput:
+    async def search_products(
+        self, arguments: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> ToolOutput:
         query = str(arguments.get("query") or "").strip()
         if not query:
             return _honest_error("'query' is required and must be non-empty.")
@@ -187,7 +189,9 @@ class CatalogTools:
             cards=cards,
         )
 
-    async def get_product_details(self, arguments: dict[str, Any]) -> ToolOutput:
+    async def get_product_details(
+        self, arguments: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> ToolOutput:
         product_id = arguments.get("product_id")
         if not isinstance(product_id, str) or not product_id:
             return _honest_error("'product_id' is required.")
@@ -204,7 +208,9 @@ class CatalogTools:
             cards=[card],
         )
 
-    async def compare_products(self, arguments: dict[str, Any]) -> ToolOutput:
+    async def compare_products(
+        self, arguments: dict[str, Any], context: dict[str, Any] | None = None
+    ) -> ToolOutput:
         ids = arguments.get("product_ids")
         if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
             return _honest_error("'product_ids' must be a list of product id strings.")
