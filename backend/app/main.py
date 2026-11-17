@@ -19,6 +19,7 @@ from app.agent.graph import (
 )
 from app.agent.tools import tool_registry
 from app.api import chat, health, products, profile, sessions
+from app.cart.tools import register_cart_tools
 from app.catalog.adapter import CatalogAdapter, JsonCatalogAdapter, default_catalog_dir
 from app.config import Settings, get_settings
 from app.db import create_engine_and_sessionmaker, init_db
@@ -55,10 +56,13 @@ def create_app(
     engine, sessionmaker = create_engine_and_sessionmaker(resolved_settings.database_url)
 
     catalog: CatalogAdapter = JsonCatalogAdapter()
-    # Full tool registry (store info + catalog tools); the retrieval index is
-    # attached during lifespan startup (System Design 3.4).
+    # Full tool registry (store info + catalog tools + cart/checkout tools);
+    # the retrieval index is attached during lifespan startup (System
+    # Design 3.4). Cart tools share the app's sessionmaker so chat and the
+    # storefront REST endpoints hit the same cart rows (System Design 3.3).
     registry = tool_registry()
     catalog_tools = register_catalog_tools(registry, catalog)
+    register_cart_tools(registry, sessionmaker, catalog)
 
     graph = None
     client_error: str | None = None

@@ -1,8 +1,9 @@
-"""Composition-root wiring (T05): catalog registry + retrieval index lifespan.
+"""Composition-root wiring (T05/T06): full registry + retrieval index lifespan.
 
 Seam: ``create_app`` — the app must build the graph over the FULL tool
-registry (store info + the three catalog tools) and construct the hybrid
-retrieval index once at startup, so chat turns search the real catalog.
+registry (store info + the three catalog tools + the four cart tools) and
+construct the hybrid retrieval index once at startup, so chat turns search
+the real catalog and share the shopper's cart with the storefront.
 """
 
 import uuid
@@ -29,6 +30,10 @@ async def test_app_builds_index_and_full_registry_at_startup(tmp_path):
             "search_products",
             "get_product_details",
             "compare_products",
+            "add_to_cart",
+            "get_cart",
+            "remove_from_cart",
+            "checkout",
         ]
         hits = await index.search("wireless headphones", limit=3)
         assert hits and hits[0].product.id == "ELE-001"

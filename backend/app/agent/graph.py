@@ -84,11 +84,15 @@ class AgentState(TypedDict):
     stripped_card_ids: list[str]  # pre-strip audit trail for the eval harness
     retried_validation: bool  # the one corrective retry (3.5) already spent
     validation_done: bool  # validate finalized this turn
-    cart_events: list[dict[str, Any]]  # CartEvent — T06 fills this
+    cart_events: list[dict[str, Any]]  # cart summaries after cart-affecting tools (T06, 3.7)
     # Rendered shopper profile block (T07, §3.6 injection): set per turn by
     # the chat endpoint from the profile store; the chatbot node renders it
     # into the system prompt's PROFILE_BLOCK seam.
     profile_block: str
+    # Rendered cart summary (T06, §3.2): set per turn by the chat endpoint
+    # from the cart store; the chatbot node renders it into the system
+    # prompt's CART_SUMMARY seam.
+    cart_summary: str
 
 
 # --- Events yielded by stream_agent_turn ----------------------------------
@@ -205,7 +209,8 @@ async def _chatbot_node(state: AgentState, client: ChatClient, tools: ToolRegist
         }
 
     system_prompt = compile_maya_prompt(
-        profile_block=state.get("profile_block") or ""
+        profile_block=state.get("profile_block") or "",
+        cart_summary=state.get("cart_summary") or "",
     )
     wire_messages = [ChatMessage(role="system", content=system_prompt)]
     wire_messages.extend(_to_chat_message(message) for message in messages)
@@ -264,21 +269,29 @@ async def _chatbot_node(state: AgentState, client: ChatClient, tools: ToolRegist
     }
 
 
-async def _tools_node(state: AgentState, tools: ToolRegistry) -> dict[str, Any]:
+async def _tools_node(state: AgentState, tools: ToolRegistry, config: RunnableConfig) -> dict[str, Any]:
     """Execute the model's requested tool calls (one hop) honestly."""
     writer = get_stream_writer()
     last_message = state["messages"][-1]
+    # Per-turn identity the model never supplies: cart tools key off the
+    # anonymous shopper (user_id) and the chat thread (session_id).
+    configurable = config.get("configurable") or {}
+    context = {
+        "user_id": configurable.get("user_id"),
+        "session_id": configurable.get("thread_id"),
+    }
     results: list[ToolMessage] = []
     hop_results: list[ToolResult] = []
     hop_cards: list[dict[str, Any]] = []
     comparison: dict[str, Any] | None = None
+    cart_summaries: list[dict[str, Any]] = []
     for call in last_message.tool_calls:
         name = call["name"]
         arguments = dict(call.get("args") or {})
         call_id = call.get("id") or name
         writer(AgentToolProgress(name=name, args_summary=summarize_arguments(arguments)))
         started = time.perf_counter()
-        output = await tools.execute(name, arguments)
+        output = await tools.execute(name, arguments, context)
         latency_ms = (time.perf_counter() - started) * 1000
         results.append(ToolMessage(content=output.content, tool_call_id=call_id))
         hop_results.append(
@@ -287,14 +300,19 @@ async def _tools_node(state: AgentState, tools: ToolRegistry) -> dict[str, Any]:
         hop_cards.extend(output.cards)
         if output.comparison is not None:
             comparison = output.comparison
+        if output.cart_summary is not None:
+            cart_summaries.append(output.cart_summary)
         writer(AgentToolDone(name=name, ok=output.ok, latency_ms=latency_ms))
     # Card payloads attach at tool-execution time (3.3): pending_cards carry
-    # what the tools actually returned, across every hop of this turn.
+    # what the tools actually returned, across every hop of this turn. Cart
+    # summaries likewise accumulate into cart_events — the SSE layer emits
+    # the freshest one as the turn's cart_update event (3.7).
     return {
         "messages": results,
         "tool_results": hop_results,
         "pending_cards": list(state.get("pending_cards") or []) + hop_cards,
         "comparison": comparison if comparison is not None else state.get("comparison"),
+        "cart_events": list(state.get("cart_events") or []) + cart_summaries,
     }
 
 
@@ -439,7 +457,7 @@ def build_agent_graph(
         return await _chatbot_node(state, client, registry, temperature)
 
     async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
-        return await _tools_node(state, registry)
+        return await _tools_node(state, registry, config)
 
     async def validate(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         return await _validate_node(state, catalog)
@@ -480,16 +498,24 @@ async def stream_agent_turn(
     thread_id: str,
     message: str,
     profile_block: str | None = None,
+    cart_summary: str | None = None,
+    user_id: str | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """Run one bounded agent turn on ``thread_id``, yielding agent events.
 
     Custom stream events (tokens, tool progress, the validation verdict) are
     the consumer-facing surface the SSE endpoint maps onto the §3.7 event
-    contract. Card/comparison state resets here so nothing leaks across turns.
-    ``profile_block`` (T07) is the rendered shopper profile the chatbot node
-    injects into the system prompt for this turn.
+    contract. Card/comparison/cart-event state resets here so nothing leaks
+    across turns. ``profile_block`` (T07) and ``cart_summary`` (T06) are the
+    rendered context blocks the chatbot node injects into the system prompt
+    for this turn. ``user_id`` (the anonymous cookie id) rides in the
+    configurable context so cart tools can key the shopper's cart — the
+    model never supplies an identity.
     """
-    config = {"configurable": {"thread_id": thread_id}}
+    configurable: dict[str, Any] = {"thread_id": thread_id}
+    if user_id is not None:
+        configurable["user_id"] = user_id
+    config = {"configurable": configurable}
     inputs: dict[str, Any] = {
         "messages": [HumanMessage(content=message)],
         "tool_results": [],
@@ -501,10 +527,11 @@ async def stream_agent_turn(
         "retried_validation": False,
         "validation_done": False,
         "cart_events": [],
-        # Always overwrite the channel (even with ""): the checkpointer keeps
-        # the previous turn's value otherwise, so a cleared profile would
-        # still be injected on the next turn of the same thread.
+        # Always overwrite the channels (even with ""): the checkpointer keeps
+        # the previous turn's value otherwise, so a cleared profile or an
+        # emptied cart would still be injected on the next turn.
         "profile_block": profile_block or "",
+        "cart_summary": cart_summary or "",
     }
     async for event in graph.astream(inputs, config, stream_mode="custom"):
         yield event

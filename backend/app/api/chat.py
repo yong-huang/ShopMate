@@ -1,9 +1,10 @@
 """POST /api/chat — the streaming chat endpoint (System Design 3.7).
 
 SSE contract, in wire order: ``session`` → ``token``* → ``tool_call``* →
-``product_card``* / ``comparison``? → ``done``; failures end the stream with
-one ``error`` event (``validation`` | ``model`` | ``internal``).
-``cart_update`` belongs to T06.
+``cart_update``? → ``product_card``* / ``comparison``? → ``done``; failures
+end the stream with one ``error`` event (``validation`` | ``model`` |
+``internal``). ``cart_update`` (T06) carries the freshest tool-attached cart
+summary after cart-affecting turns (System Design 3.7).
 
 Cards on the wire are the guardrail-approved payloads from the graph state
 (System Design 3.5) — the tool-verified ground truth attached at
@@ -34,6 +35,8 @@ from app.agent.graph import (
     AgentValidation,
     stream_agent_turn,
 )
+from app.cart.render import render_cart_summary_text
+from app.cart.service import cart_summary as read_cart_summary
 from app.db import (
     get_or_create_session,
     get_or_create_user,
@@ -184,6 +187,14 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
         )
         schedule_extraction(sessionmaker, extraction_client, idle_extraction_id)
 
+    # §3.2 injection: render this shopper's cart into the CART_SUMMARY block
+    # (compact, capped). A DB read only — the tools mutate the cart later in
+    # the turn and the fresh state reaches the shopper via cart_update.
+    async with sessionmaker() as db:
+        cart_block = render_cart_summary_text(
+            await read_cart_summary(db, request.app.state.catalog, cookie_sid)
+        )
+
     async def event_stream() -> AsyncIterator[str]:
         # A chat turn is a standalone TurnContext: the response body streams
         # after the logging middleware's scope has already exited, so its
@@ -209,12 +220,17 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
             )
             turn.finish(status=status, error="provider_not_configured")
             return
-        config = {"configurable": {"thread_id": body.session_id}}
+        config = {"configurable": {"thread_id": body.session_id, "user_id": cookie_sid}}
         try:
             state_before = await graph.aget_state(config)
             base_count = len(state_before.values.get("messages", []))
             async for agent_event in stream_agent_turn(
-                graph, body.session_id, body.message, profile_block=profile_block
+                graph,
+                body.session_id,
+                body.message,
+                profile_block=profile_block,
+                cart_summary=cart_block,
+                user_id=cookie_sid,
             ):
                 if isinstance(agent_event, AgentToken):
                     yield _sse("token", {"text": agent_event.text})
@@ -240,6 +256,12 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
                     )
             state_after = await graph.aget_state(config)
             new_messages = state_after.values.get("messages", [])[base_count:]
+            # cart_update (3.7): after cart-affecting tool hops the freshest
+            # tool-attached cart summary goes on the wire (items + total) so
+            # the storefront and the chat widget agree with the server state.
+            cart_events = state_after.values.get("cart_events") or []
+            if cart_events:
+                yield _sse("cart_update", cart_events[-1])
             # Validated cards/comparison (3.5) stream after the text, before
             # done — payloads are the catalog ground truth, never model prose.
             for card in state_after.values.get("validated_cards") or []:
