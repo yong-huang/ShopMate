@@ -1,12 +1,25 @@
 """FastAPI application entry point."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from app.api import health
+from app.api import health, products
+from app.catalog.adapter import JsonCatalogAdapter, default_catalog_dir
 from app.config import Settings, get_settings
 
 APP_VERSION = "0.1.0"
+
+
+def _error_body(exc: Exception) -> dict[str, str]:
+    """Errors use the {code, message} JSON shape (System Design 3.7)."""
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, dict) and {"code", "message"} <= set(detail):
+        return {"code": detail["code"], "message": detail["message"]}
+    return {"code": "http_error", "message": str(detail or exc)}
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -24,7 +37,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.state.settings = resolved_settings
+    app.state.catalog = JsonCatalogAdapter()
     app.include_router(health.router, prefix="/api")
+    app.include_router(products.router, prefix="/api")
+
+    images_dir = default_catalog_dir() / "images"
+    if images_dir.is_dir():
+        app.mount(
+            "/static/catalog/images",
+            StaticFiles(directory=images_dir),
+            name="catalog-images",
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_to_code_shape(
+        _request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code, content=_error_body(exc)
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_to_code_shape(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"code": "validation_error", "message": str(exc)},
+        )
+
     return app
 
 
