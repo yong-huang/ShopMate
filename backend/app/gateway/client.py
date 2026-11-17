@@ -97,9 +97,10 @@ def create_chat_client(
     proxy needs) can supply their own transport; by default a client with
     conservative timeouts is created.
     """
+    endpoint = resolve_endpoint(settings)  # may raise GatewayConfigError
     if http_client is None:
         http_client = httpx.AsyncClient(timeout=DEFAULT_TIMEOUT)
     return OpenAICompatChatClient(
-        endpoint=resolve_endpoint(settings),
+        endpoint=endpoint,
         http_client=http_client,
     )
