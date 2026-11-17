@@ -188,6 +188,14 @@ class TurnExpect:
     must_not_mention: list[str] = field(default_factory=list)
     language: str | None = None  # per-turn override of the scenario lang
 
+    def __post_init__(self) -> None:
+        # Tolerate the dict form in hand-built expectations (tests, harness
+        # code): normalize exactly as the loader does.
+        if isinstance(self.cart_expected, dict):
+            self.cart_expected = _parse_cart_expected(
+                self.cart_expected, "<expect>", "cart_expected"
+            )
+
     @property
     def has_tool_expectations(self) -> bool:
         return bool(self.expected_tools_subset or self.expected_tools_excluded)
