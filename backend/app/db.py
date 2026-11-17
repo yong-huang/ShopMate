@@ -1,13 +1,18 @@
 """SQLite persistence layer (System Design 3.8, ADR-004).
 
-Delivers the three v1 chat tables — ``users`` (anonymous, cookie-linked),
-``sessions``, and ``messages`` (logs + eval source). Cart, order, and profile
-tables belong to later tickets and are added to ``Base.metadata`` there.
+Delivers the v1 chat tables — ``users`` (anonymous, cookie-linked),
+``sessions``, and ``messages`` (logs + eval source) — plus the ``profiles``
+table (T07). Cart/order tables belong to T06 and are added to
+``Base.metadata`` there.
 
-The chat endpoint (T04) is the primary consumer: it maps the ``shopmate_sid``
-cookie to a ``users`` row, opens ``sessions`` per conversation, and appends
-user/assistant messages (assistant messages carrying their ``tool_calls``
-JSON) through :func:`record_message`.
+The chat endpoint (T04) is the primary consumer of the chat tables: it maps
+the ``shopmate_sid`` cookie to a ``users`` row, opens ``sessions`` per
+conversation, and appends user/assistant messages (assistant messages
+carrying their ``tool_calls`` JSON) through :func:`record_message`. The
+profile pipeline (T07) reads/writes ``profiles`` via
+:func:`get_profile` / :func:`ensure_profile` /
+:func:`record_interaction` / :func:`clear_profile` — T06 reuses
+:func:`record_interaction` for added/purchased events.
 """
 
 from collections.abc import AsyncIterator
@@ -64,6 +69,28 @@ class Message(Base):
     content: Mapped[str | None] = mapped_column(Text, default=None)
     tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class Profile(Base):
+    """Cross-session preference profile (System Design 3.8 ``profiles``).
+
+    ``field_sources`` carries the §3.6 merge bookkeeping: per preference
+    field, which session last wrote it ({"field": {"session_id", "at"}}).
+    The last-write-wins logic itself lives in ``app.profile.merge``.
+    """
+
+    __tablename__ = "profiles"
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    interests: Mapped[list[str]] = mapped_column(JSON, default=list)
+    price_band: Mapped[str | None] = mapped_column(Text, default=None)
+    sizes: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    likes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    dislikes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    notes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    interaction_log: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    field_sources: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime | None] = mapped_column(default=None)
 
 
 def create_engine_and_sessionmaker(
@@ -126,3 +153,67 @@ async def session_message_count(db: AsyncSession, session_id: str) -> int:
     """Number of persisted messages for one session."""
     rows = await db.execute(select(Message).where(Message.session_id == session_id))
     return len(rows.scalars().all())
+
+
+# --- Profile store (System Design 3.6 / 3.8) -------------------------------
+# Callers commit; the helpers here only flush, mirroring record_message.
+
+INTERACTION_LOG_MAX = 100
+
+
+async def get_profile(db: AsyncSession, user_id: str) -> Profile | None:
+    """The user's profile row, or ``None`` when no profile exists yet."""
+    return await db.get(Profile, user_id)
+
+
+async def ensure_profile(db: AsyncSession, user_id: str) -> Profile:
+    """Return the user's profile row, creating the empty default on demand."""
+    profile = await db.get(Profile, user_id)
+    if profile is None:
+        profile = Profile(user_id=user_id)
+        db.add(profile)
+        await db.flush()
+    return profile
+
+
+async def record_interaction(
+    db: AsyncSession,
+    user_id: str,
+    *,
+    type: str,
+    product_id: str | None = None,
+    session_id: str | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Append one interaction event to the profile (§3.6 capture stage).
+
+    The interaction log is capped to the most recent ``INTERACTION_LOG_MAX``
+    events. T06 (cart) calls this same seam with ``add_to_cart`` /
+    ``purchase`` events. Returns the stored event dict (callers commit).
+    """
+    profile = await ensure_profile(db, user_id)
+    event: dict[str, Any] = {
+        "type": type,
+        "at": _now().isoformat(),
+        "product_id": product_id,
+        "session_id": session_id,
+    }
+    event.update(extra)
+    log = list(profile.interaction_log or [])
+    log.append(event)
+    profile.interaction_log = log[-INTERACTION_LOG_MAX:]
+    return event
+
+
+async def clear_profile(db: AsyncSession, user_id: str) -> bool:
+    """Delete the profile row entirely — preferences *and* interaction log.
+
+    Returns whether a row existed. §3.6 control stage: nothing is re-injected
+    after a clear because the row itself is gone.
+    """
+    profile = await db.get(Profile, user_id)
+    if profile is None:
+        return False
+    await db.delete(profile)
+    await db.flush()
+    return True
