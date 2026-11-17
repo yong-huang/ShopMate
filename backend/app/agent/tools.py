@@ -1,14 +1,20 @@
 """Agent tool registry (System Design 3.3).
 
-This ticket (T04) wires exactly one trivial tool — ``get_store_info`` — so
-the LangGraph chatbot/tools loop is real. Catalog tools (``search_products``,
-``get_product_details``) and cart tools belong to T05/T06 and register
-themselves here. Tools return ``(content, ok)``; failures are honest strings
-the model can see, never fabricated results.
+T04 wired the trivial ``get_store_info`` tool so the LangGraph loop is real;
+T05 registers the catalog tools (``search_products``, ``get_product_details``,
+``compare_products``) on the same seam. Cart tools belong to T06.
+
+Tools return ``(content, ok)``; failures are honest strings the model can
+see, never fabricated results. Catalog executors may return a
+:class:`ToolOutput` instead: the same honest pair plus the *structured*
+payloads (product cards, comparison matrix) attached at tool-execution
+time, so the guardrail validates what the tools actually returned — never
+what the model claims (System Design 3.3/3.5).
 """
 
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.gateway.tools import ToolSpec
@@ -28,7 +34,23 @@ STORE_INFO_BLURB = (
     "(150 products). Free shipping over $50; 30-day returns on everything."
 )
 
-Executor = Callable[[dict[str, Any]], Awaitable[tuple[str, bool]]]
+
+@dataclass
+class ToolOutput:
+    """Result of one tool execution.
+
+    ``content``/``ok`` are what the model sees; ``cards`` and ``comparison``
+    are structured payloads for the guardrail + SSE layers (empty/None for
+    plain tools).
+    """
+
+    content: str
+    ok: bool
+    cards: list[dict[str, Any]] = field(default_factory=list)
+    comparison: dict[str, Any] | None = None
+
+
+Executor = Callable[[dict[str, Any]], Awaitable[tuple[str, bool] | ToolOutput]]
 
 
 async def _store_info_executor(_arguments: dict[str, Any]) -> tuple[str, bool]:
@@ -39,27 +61,29 @@ class ToolRegistry:
     """Tool specs (for the gateway) plus their executors (for the tools node)."""
 
     def __init__(self) -> None:
+        self._specs: dict[str, ToolSpec] = {}
         self._executors: dict[str, Executor] = {}
 
     def register(self, spec: ToolSpec, executor: Executor) -> None:
+        self._specs[spec.name] = spec
         self._executors[spec.name] = executor
 
     def specs(self) -> list[ToolSpec]:
-        return [
-            spec
-            for spec in (STORE_INFO_TOOL,)
-            if spec.name in self._executors
-        ]
+        return list(self._specs.values())
 
-    async def execute(self, name: str, arguments: dict[str, Any]) -> tuple[str, bool]:
+    async def execute(self, name: str, arguments: dict[str, Any]) -> ToolOutput:
         """Run one tool call; unknown tools fail honestly instead of raising."""
         executor = self._executors.get(name)
         if executor is None:
-            return (
-                f"Error: tool '{name}' is not available in this environment.",
-                False,
+            return ToolOutput(
+                content=f"Error: tool '{name}' is not available in this environment.",
+                ok=False,
             )
-        return await executor(arguments)
+        result = await executor(arguments)
+        if isinstance(result, ToolOutput):
+            return result
+        content, ok = result
+        return ToolOutput(content=content, ok=ok)
 
 
 def tool_registry() -> ToolRegistry:

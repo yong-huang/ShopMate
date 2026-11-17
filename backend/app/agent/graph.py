@@ -229,13 +229,13 @@ async def _tools_node(state: AgentState, tools: ToolRegistry) -> dict[str, Any]:
         call_id = call.get("id") or name
         writer(AgentToolProgress(name=name, args_summary=summarize_arguments(arguments)))
         started = time.perf_counter()
-        content, ok = await tools.execute(name, arguments)
+        output = await tools.execute(name, arguments)
         latency_ms = (time.perf_counter() - started) * 1000
-        results.append(ToolMessage(content=content, tool_call_id=call_id))
+        results.append(ToolMessage(content=output.content, tool_call_id=call_id))
         hop_results.append(
-            {"name": name, "ok": ok, "content": content, "latency_ms": latency_ms}
+            {"name": name, "ok": output.ok, "content": output.content, "latency_ms": latency_ms}
         )
-        writer(AgentToolDone(name=name, ok=ok, latency_ms=latency_ms))
+        writer(AgentToolDone(name=name, ok=output.ok, latency_ms=latency_ms))
     return {"messages": results, "tool_results": hop_results}
 
 
