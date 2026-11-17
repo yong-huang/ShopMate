@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     embedding_provider: Literal["auto", "ollama", "glm", "none"] = "auto"
     embedding_model: str = "bge-m3"
     database_url: str = "sqlite+aiosqlite:///./data/shopmate.db"
+    # SQLite file for the LangGraph checkpointer (System Design 3.2): one
+    # thread per session, so conversation state survives restarts.
+    checkpoint_db_url: str = "sqlite+aiosqlite:///./data/checkpoints.db"
     session_idle_ttl_min: int = 15
     backend_port: int = 8000
     frontend_port: int = 3000

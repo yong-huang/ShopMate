@@ -4,7 +4,7 @@
 ``type``: ``token_delta`` | ``tool_call`` | ``finish``.
 """
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field
 
@@ -30,10 +30,16 @@ class ToolCallEvent(BaseModel):
 
 
 class FinishEvent(BaseModel):
-    """Stream completion, carrying the provider's finish reason verbatim."""
+    """Stream completion, carrying the provider's finish reason verbatim.
+
+    ``usage`` optionally carries the provider's token-usage payload (when the
+    provider emits a trailing usage chunk); the agent layer records it into
+    the turn log when present.
+    """
 
     type: Literal["finish"] = "finish"
     finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
 
 
 ChatEvent = Annotated[
