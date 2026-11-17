@@ -26,7 +26,10 @@ SESSION_COOKIE = "shopmate_sid"
 
 
 def make_settings(tmp_path) -> Settings:
+    # _env_file=None keeps tests hermetic: a developer's backend/.env (e.g.
+    # LLM_PROVIDER=ollama for a live run) must not leak into test settings.
     return Settings(
+        _env_file=None,
         database_url=f"sqlite+aiosqlite:///{tmp_path}/shopmate.db",
         checkpoint_db_url=f"sqlite+aiosqlite:///{tmp_path}/checkpoints.db",
     )
