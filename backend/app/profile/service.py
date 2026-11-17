@@ -14,7 +14,7 @@ Session-end triggers (all funnel into ``end_session`` →
 
 import asyncio
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -54,7 +54,8 @@ async def load_session_transcript(
     )
     rows = (await db.execute(query)).scalars().all()
     if until is not None:
-        rows = [row for row in rows if row.created_at and row.created_at <= until]
+        until = _aware(until)
+        rows = [row for row in rows if row.created_at and _aware(row.created_at) <= until]
     return "\n".join(f"{row.role}: {row.content}" for row in rows if row.content)
 
 
@@ -209,6 +210,40 @@ async def open_sessions_for_user(
         .order_by(SessionRow.started_at.desc())
     )
     return list((await db.execute(query)).scalars().all())
+
+
+def _aware(moment: datetime) -> datetime:
+    """SQLite round-trips datetimes naive; treat stored values as UTC."""
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+async def end_session_if_idle(
+    db: AsyncSession, session_id: str, *, ttl_min: int
+) -> bool:
+    """Lazy idle-TTL check on session touch (System Design 3.6).
+
+    Ends the session when its last activity (newest message, else start) is
+    at least ``ttl_min`` old; the caller then enqueues extraction. Returns
+    whether this call ended the session. Runs inside the caller's transaction
+    (flush only — the endpoint's commit persists it).
+    """
+    row = await db.get(SessionRow, session_id)
+    if row is None or row.ended_at is not None:
+        return False
+    latest = await db.execute(
+        select(Message.created_at)
+        .where(Message.session_id == session_id)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )
+    last_activity = latest.scalar_one_or_none() or row.started_at
+    if last_activity is None:
+        return False
+    idle_for = datetime.now(UTC) - _aware(last_activity)
+    if idle_for < timedelta(minutes=ttl_min):
+        return False
+    row.ended_at = datetime.now(UTC)
+    return True
 
 
 async def get_profile_payload(

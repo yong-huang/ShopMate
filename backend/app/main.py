@@ -16,7 +16,7 @@ from app.agent.graph import (
     close_checkpointer,
     open_checkpointer,
 )
-from app.api import chat, health, products, profile
+from app.api import chat, health, products, profile, sessions
 from app.catalog.adapter import JsonCatalogAdapter, default_catalog_dir
 from app.config import Settings, get_settings
 from app.db import create_engine_and_sessionmaker, init_db
@@ -52,14 +52,17 @@ def create_app(
 
     graph = None
     client_error: str | None = None
+    extraction_client = chat_client  # T07: profile extraction shares the facade
     if chat_client is not None:
         graph = build_agent_graph(client=chat_client)
     else:
         try:
             client = create_chat_client(resolved_settings)
+            extraction_client = client
             graph = build_agent_graph(client=client)
         except GatewayConfigError as exc:
             client_error = str(exc)
+            extraction_client = None
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -99,10 +102,14 @@ def create_app(
     app.state.client_error = client_error
     app.state.sessionmaker = sessionmaker
     app.state.engine = engine
+    # T07: gateway facade for session-end profile extraction (None when the
+    # provider config is unusable — extraction is skipped, never fatal).
+    app.state.extraction_client = extraction_client
     app.include_router(health.router, prefix="/api")
     app.include_router(products.router, prefix="/api")
     app.include_router(chat.router, prefix="/api")
     app.include_router(profile.router, prefix="/api")
+    app.include_router(sessions.router, prefix="/api")
 
     images_dir = default_catalog_dir() / "images"
     if images_dir.is_dir():
