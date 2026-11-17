@@ -26,8 +26,32 @@ class ProviderHTTPError(GatewayError):
 class ToolCallDegradationError(GatewayError):
     """The model repeatedly failed to emit valid tool calls.
 
-    Raised after ``N`` consecutive tool-enabled attempts produced no valid
-    tool call (malformed JSON arguments, missing name, or no tool call at
-    all). Callers must treat this as "this model can't run the tools" and
-    degrade honestly — never fabricate tool results.
+    An *attempt* is one ``ChatClient.stream`` call with tools attached. An
+    attempt fails when it yields no valid tool call — malformed tool JSON
+    (unparseable arguments or missing function name) or no tool call at all.
+    After ``N`` consecutive failed attempts (``LLM_TOOL_DEGRADATION_ATTEMPTS``),
+    this error is raised at the end of that stream's events. Any attempt with
+    a valid tool call resets the counter, so a model that can run tools is
+    never latched as degraded. Callers must degrade honestly — never
+    fabricate tool results.
     """
+
+    def __init__(
+        self,
+        *,
+        provider: str,
+        model: str,
+        failed_attempts: int,
+        attempt_limit: int,
+    ) -> None:
+        self.provider = provider
+        self.model = model
+        self.failed_attempts = failed_attempts
+        self.attempt_limit = attempt_limit
+        super().__init__(
+            f"Model '{model}' ({provider}) produced no valid tool calls on "
+            f"{failed_attempts} consecutive tool-enabled attempts "
+            f"(limit {attempt_limit}). This model can't reliably run the "
+            "shop tools — try a tool-capable model (e.g. qwen3:8b on "
+            "Ollama) or switch LLM_PROVIDER."
+        )

@@ -14,6 +14,7 @@ from typing import Protocol
 import httpx
 
 from app.config import Settings
+from app.gateway.errors import ToolCallDegradationError
 from app.gateway.events import ChatEvent, FinishEvent, TokenDeltaEvent, ToolCallEvent
 from app.gateway.messages import ChatMessage
 from app.gateway.providers import ResolvedEndpoint, resolve_endpoint
@@ -52,9 +53,13 @@ class OpenAICompatChatClient(ChatClient):
         *,
         endpoint: ResolvedEndpoint,
         http_client: httpx.AsyncClient,
+        max_failed_tool_call_attempts: int = 3,
     ) -> None:
         self._endpoint = endpoint
         self._http = http_client
+        self._max_failed_attempts = max_failed_tool_call_attempts
+        self._failed_tool_call_attempts = 0
+        self._degraded = False
 
     async def stream(
         self,
@@ -106,9 +111,29 @@ class OpenAICompatChatClient(ChatClient):
                     if function.get("arguments"):
                         pending.argument_parts.append(function["arguments"])
                 finish_reason = choices[0].get("finish_reason") or finish_reason
-        for call in _assemble_tool_calls(pending_calls):
+        valid_calls = _assemble_tool_calls(pending_calls)
+        for call in valid_calls:
             yield ToolCallEvent(call=call)
         yield FinishEvent(finish_reason=finish_reason)
+        if tools:
+            self._track_degradation(len(valid_calls) > 0)
+            if self._degraded:
+                raise ToolCallDegradationError(
+                    provider=self._endpoint.provider,
+                    model=self._endpoint.model,
+                    failed_attempts=self._failed_tool_call_attempts,
+                    attempt_limit=self._max_failed_attempts,
+                )
+
+    def _track_degradation(self, attempt_succeeded: bool) -> None:
+        """Count consecutive failed tool-enabled attempts (reset on success)."""
+        if attempt_succeeded:
+            self._failed_tool_call_attempts = 0
+        else:
+            self._failed_tool_call_attempts += 1
+        self._degraded = (
+            0 < self._max_failed_attempts <= self._failed_tool_call_attempts
+        )
 
 
 def _assemble_tool_calls(pending_calls: dict[int, _PendingToolCall]) -> list[ToolCall]:
@@ -149,4 +174,5 @@ def create_chat_client(
     return OpenAICompatChatClient(
         endpoint=endpoint,
         http_client=http_client,
+        max_failed_tool_call_attempts=settings.llm_tool_degradation_attempts,
     )
