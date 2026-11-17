@@ -14,7 +14,11 @@ from typing import Protocol
 import httpx
 
 from app.config import Settings
-from app.gateway.errors import ToolCallDegradationError
+from app.gateway.errors import (
+    ProviderHTTPError,
+    ProviderResponseError,
+    ToolCallDegradationError,
+)
 from app.gateway.events import ChatEvent, FinishEvent, TokenDeltaEvent, ToolCallEvent
 from app.gateway.messages import ChatMessage
 from app.gateway.providers import ResolvedEndpoint, resolve_endpoint
@@ -84,6 +88,13 @@ class OpenAICompatChatClient(ChatClient):
         async with self._http.stream(
             "POST", self._endpoint.chat_url, headers=headers, json=body
         ) as response:
+            if response.status_code >= 400:
+                raw_body = (await response.aread()).decode("utf-8", errors="replace")
+                raise ProviderHTTPError(
+                    provider=self._endpoint.provider,
+                    status_code=response.status_code,
+                    body_snippet=raw_body[:500],
+                )
             async for line in response.aiter_lines():
                 if not line.startswith("data:"):
                     continue  # blank lines, SSE comments, other fields
@@ -92,7 +103,13 @@ class OpenAICompatChatClient(ChatClient):
                     break
                 if not payload:
                     continue
-                chunk = json.loads(payload)
+                try:
+                    chunk = json.loads(payload)
+                except ValueError:
+                    raise ProviderResponseError(
+                        provider=self._endpoint.provider,
+                        detail=payload[:200],
+                    ) from None
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue  # e.g. usage-only trailing chunk

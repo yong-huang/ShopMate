@@ -16,6 +16,7 @@ from app.gateway.errors import (
     GatewayConfigError,
     GatewayError,
     ProviderHTTPError,
+    ProviderResponseError,
     ToolCallDegradationError,
 )
 from app.gateway.events import (
@@ -37,6 +38,7 @@ __all__ = [
     "GatewayError",
     "OpenAICompatChatClient",
     "ProviderHTTPError",
+    "ProviderResponseError",
     "ResolvedEndpoint",
     "TokenDeltaEvent",
     "ToolCall",

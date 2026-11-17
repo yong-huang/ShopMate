@@ -22,6 +22,26 @@ class ProviderHTTPError(GatewayError):
     failure is diagnosable without re-dialing the provider.
     """
 
+    def __init__(self, *, provider: str, status_code: int, body_snippet: str) -> None:
+        self.provider = provider
+        self.status_code = status_code
+        self.body_snippet = body_snippet
+        super().__init__(
+            f"{provider} chat completions failed with HTTP {status_code}: "
+            f"{body_snippet}"
+        )
+
+
+class ProviderResponseError(GatewayError):
+    """The provider sent a stream the gateway could not parse as SSE JSON."""
+
+    def __init__(self, *, provider: str, detail: str) -> None:
+        self.provider = provider
+        self.detail = detail
+        super().__init__(
+            f"{provider} sent an unparseable chat-completions chunk: {detail}"
+        )
+
 
 class ToolCallDegradationError(GatewayError):
     """The model repeatedly failed to emit valid tool calls.
