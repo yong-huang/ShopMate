@@ -47,3 +47,12 @@ def test_compilation_injects_profile_cart_and_catalog_blocks():
     assert "1 x Trail Shoe A" in prompt
     assert "Home & Kitchen" in prompt
     assert "{{" not in prompt
+
+
+def test_prompt_documents_the_product_card_block_format():
+    """T05: rule 2 must teach the model the exact card-block contract (3.5)."""
+    template = maya_prompt_template()
+    assert "```product-card" in template
+    for field in ("product_id", "price", "rating"):
+        assert field in template
+    assert template.count("product-card") >= 2  # fence open + close documented
