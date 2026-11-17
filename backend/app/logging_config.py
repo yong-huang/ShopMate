@@ -72,8 +72,18 @@ def configure_logging(level: int = logging.INFO) -> None:
     """Attach the JSON-lines handler to the root logger (idempotent).
 
     Attaching at the root keeps uvicorn's own records (which propagate) in
-    the same JSON stream, which is what `docker logs` expects.
+    the same JSON stream, which is what `docker logs` expects. uvicorn's
+    plain-text access-log handler is removed so the stream stays pure JSON.
     """
+    # uvicorn configures its loggers (via dictConfig) before importing the
+    # app: the plain-text handler lives on the `uvicorn` logger itself with
+    # propagation disabled, and uvicorn.error / uvicorn.access inherit it
+    # through the ancestor chain. Clear all three and re-enable propagation
+    # so every uvicorn record flows through the root JSON formatter instead.
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uvicorn_logger = logging.getLogger(name)
+        uvicorn_logger.handlers.clear()
+        uvicorn_logger.propagate = True
     root = logging.getLogger()
     for handler in root.handlers:
         if isinstance(handler.formatter, JsonLineFormatter):

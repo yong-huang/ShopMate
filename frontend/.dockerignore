@@ -1,0 +1,8 @@
+# Keep local state and secrets out of the build context.
+node_modules
+.next
+out
+.env
+.env.*
+npm-debug.log*
+.DS_Store

@@ -1,0 +1,83 @@
+# ShopMate demo deployment (System Design section 3.10, NFR-5).
+#
+#   cp .env.example .env   # GLM mode: set LLM_API_KEY; Ollama mode: set LLM_PROVIDER=ollama
+#   docker compose up      # or: make docker-up
+#
+# - `api` — FastAPI backend (backend/Dockerfile), SQLite data persisted in
+#   ./backend/data (bind-mounted at /app/data).
+# - `web` — Next.js frontend (frontend/Dockerfile.web, standalone build).
+# - Ollama stays on the host and is reached via host.docker.internal:11434,
+#   never localhost (which inside a container is the container itself).
+#
+# Configuration flow: the root `.env` (same file `make dev` uses) is loaded
+# into the containers; the `environment` blocks below only override what must
+# differ between host dev and containerized demo. Ports on the host follow
+# BACKEND_PORT / FRONTEND_PORT from `.env` (defaults 8000 / 3000).
+
+services:
+  api:
+    build:
+      context: ./backend
+    image: shopmate-api
+    env_file:
+      # Optional: the app boots on Settings defaults without a .env file;
+      # provider credentials (LLM_API_KEY etc.) come from it when present.
+      - path: .env
+        required: false
+    environment:
+      # Host Ollama via the host gateway (spec section 3.10). `environment`
+      # wins over env_file, so a localhost value for `make dev` cannot leak
+      # into the containers.
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      BACKEND_PORT: "8000"
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      # Runtime data (SQLite) persists across container restarts.
+      - ./backend/data:/app/data
+    extra_hosts:
+      # `host-gateway` maps host.docker.internal on Linux too (Docker Desktop
+      # provides it natively on macOS/Windows).
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.web
+      args:
+        # Baked into the client bundle: the browser talks to the backend
+        # through the host port mapping.
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}
+    image: shopmate-web
+    environment:
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped

@@ -88,3 +88,32 @@ def test_non_serializable_extra_is_stringified() -> None:
     parsed = json.loads(formatter.format(record))
 
     assert isinstance(parsed["weird"], str)
+
+
+def test_configure_logging_silences_uvicorns_plain_output() -> None:
+    """The JSON stream must stay machine-parseable (NFR-4).
+
+    uvicorn installs a plain-text handler on `uvicorn.access` before the app
+    is imported; configure_logging removes it so access records propagate to
+    the root JSON handler instead of doubling the stream in plain text.
+    """
+    import logging
+
+    from app.logging_config import configure_logging
+
+    # Simulate uvicorn's dictConfig faithfully: the plain-text handler lives
+    # on the `uvicorn` logger itself with propagation disabled, and children
+    # (uvicorn.error, uvicorn.access) inherit it through the ancestor chain.
+    uvicorn = logging.getLogger("uvicorn")
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    uvicorn_access = logging.getLogger("uvicorn.access")
+    uvicorn.addHandler(logging.StreamHandler())
+    uvicorn.propagate = False
+    uvicorn_access.addHandler(logging.StreamHandler())
+    uvicorn_access.propagate = False
+
+    configure_logging()
+
+    for uv_logger in (uvicorn, uvicorn_error, uvicorn_access):
+        assert uv_logger.handlers == []
+        assert uv_logger.propagate is True
