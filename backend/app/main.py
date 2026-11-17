@@ -10,19 +10,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.agent.catalog_tools import register_catalog_tools
 from app.agent.graph import (
     build_agent_graph,
     checkpointer_path_from_url,
     close_checkpointer,
     open_checkpointer,
 )
+from app.agent.tools import tool_registry
 from app.api import chat, health, products
-from app.catalog.adapter import JsonCatalogAdapter, default_catalog_dir
+from app.catalog.adapter import CatalogAdapter, JsonCatalogAdapter, default_catalog_dir
 from app.config import Settings, get_settings
 from app.db import create_engine_and_sessionmaker, init_db
 from app.gateway.client import ChatClient, create_chat_client
 from app.gateway.errors import GatewayConfigError
 from app.logging_config import configure_logging
+from app.retrieval.index import RetrievalIndex
+from app.retrieval.vector import create_embedding_provider
 from app.request_logging import RequestLoggingMiddleware
 
 APP_VERSION = "0.1.0"
@@ -50,20 +54,29 @@ def create_app(
     resolved_settings = settings if settings is not None else get_settings()
     engine, sessionmaker = create_engine_and_sessionmaker(resolved_settings.database_url)
 
+    catalog: CatalogAdapter = JsonCatalogAdapter()
+    # Full tool registry (store info + catalog tools); the retrieval index is
+    # attached during lifespan startup (System Design 3.4).
+    registry = tool_registry()
+    catalog_tools = register_catalog_tools(registry, catalog)
+
     graph = None
     client_error: str | None = None
     if chat_client is not None:
-        graph = build_agent_graph(client=chat_client)
+        graph = build_agent_graph(client=chat_client, tools=registry, adapter=catalog)
     else:
         try:
             client = create_chat_client(resolved_settings)
-            graph = build_agent_graph(client=client)
+            graph = build_agent_graph(client=client, tools=registry, adapter=catalog)
         except GatewayConfigError as exc:
             client_error = str(exc)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         await init_db(engine)
+        index = await RetrievalIndex.build(catalog, create_embedding_provider(resolved_settings))
+        catalog_tools.set_index(index)
+        application.state.retrieval_index = index
         checkpointer = None
         if graph is not None:
             checkpoint_path = checkpointer_path_from_url(
@@ -94,7 +107,9 @@ def create_app(
     )
     app.add_middleware(RequestLoggingMiddleware)
     app.state.settings = resolved_settings
-    app.state.catalog = JsonCatalogAdapter()
+    app.state.catalog = catalog
+    app.state.tool_registry = registry
+    app.state.retrieval_index = None  # built during lifespan startup
     app.state.graph = graph
     app.state.client_error = client_error
     app.state.sessionmaker = sessionmaker

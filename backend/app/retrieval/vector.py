@@ -130,6 +130,25 @@ class OllamaEmbeddingClient:
         np.save(self._cache_path(text), np.asarray(vector, dtype=np.float64))
 
 
+def create_embedding_provider(settings) -> EmbeddingProvider | None:
+    """Provider chain for EMBEDDING_PROVIDER (System Design 3.4).
+
+    ``auto``/``ollama`` build the Ollama embedding client — any failure at
+    index build or query time degrades silently to keyword-only ranking
+    (ADR-003). ``none`` opts out. ``glm`` would chain to the GLM embedding
+    API per the design; the GLM embedding client is not built yet, so it
+    degrades to keyword-only for now (documented prototype scope).
+    """
+    if settings.embedding_provider == "none":
+        return None
+    if settings.embedding_provider in ("auto", "ollama"):
+        return OllamaEmbeddingClient(
+            base_url=settings.ollama_base_url,
+            model=settings.embedding_model,
+        )
+    return None
+
+
 class VectorIndex:
     """Cosine-similarity index over one embedding per document."""
 

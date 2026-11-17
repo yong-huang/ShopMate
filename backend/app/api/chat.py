@@ -1,15 +1,20 @@
 """POST /api/chat — the streaming chat endpoint (System Design 3.7).
 
 SSE contract, in wire order: ``session`` → ``token``* → ``tool_call``* →
-``done``; failures end the stream with one ``error`` event
-(``validation`` | ``model`` | ``internal``). ``product_card`` /
-``comparison`` / ``cart_update`` belong to T05/T06 and are not emitted here.
+``product_card``* / ``comparison``? → ``done``; failures end the stream with
+one ``error`` event (``validation`` | ``model`` | ``internal``).
+``cart_update`` belongs to T06.
+
+Cards on the wire are the guardrail-approved payloads from the graph state
+(System Design 3.5) — the tool-verified ground truth attached at
+tool-execution time, never model prose.
 
 Responsibilities (the agent graph stays pure per §3.2):
 - anonymous identity: issue/reuse the ``shopmate_sid`` HttpOnly cookie
 - persist user + assistant (incl. tool calls) + tool messages (§3.8)
 - run one bounded agent turn per request (thread per session)
-- emit the turn-log ``chat_turn`` record (NFR-4) with hops and token usage
+- emit the turn-log ``chat_turn`` record (NFR-4) with hops, token usage, and
+  the guardrail verdict incl. the pre-strip failing card ids (eval audit)
 """
 
 import json
@@ -26,6 +31,7 @@ from app.agent.graph import (
     AgentToolProgress,
     AgentToken,
     AgentUsage,
+    AgentValidation,
     stream_agent_turn,
 )
 from app.db import (
@@ -95,6 +101,15 @@ class ChatRequest(BaseModel):
         except ValueError:
             raise ValueError("session_id must be a UUID") from None
         return value
+
+
+def _final_assistant_text(new_messages: list) -> str:
+    """The turn's final assistant text — the situational recommendation."""
+    text = ""
+    for message in new_messages:
+        if isinstance(message, AIMessage) and not getattr(message, "tool_calls", None):
+            text = str(message.content or "")
+    return text
 
 
 async def _persist_turn_messages(sessionmaker, session_id: str, new_messages: list) -> int | None:
@@ -190,8 +205,28 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
                         prompt_tokens=agent_event.prompt_tokens,
                         completion_tokens=agent_event.completion_tokens,
                     )
+                elif isinstance(agent_event, AgentValidation):
+                    turn.record_validation(
+                        agent_event.outcome,
+                        failed_product_ids=agent_event.failed_product_ids,
+                        card_count=agent_event.card_count,
+                    )
             state_after = await graph.aget_state(config)
             new_messages = state_after.values.get("messages", [])[base_count:]
+            # Validated cards/comparison (3.5) stream after the text, before
+            # done — payloads are the catalog ground truth, never model prose.
+            for card in state_after.values.get("validated_cards") or []:
+                yield _sse("product_card", card)
+            comparison = state_after.values.get("comparison")
+            if comparison is not None:
+                yield _sse(
+                    "comparison",
+                    {
+                        "product_ids": comparison.get("product_ids", []),
+                        "matrix": comparison.get("matrix"),
+                        "recommendation": _final_assistant_text(new_messages),
+                    },
+                )
             final_id = await _persist_turn_messages(sessionmaker, body.session_id, new_messages)
             yield _sse("done", {"message_id": final_id})
         except GatewayError as exc:
