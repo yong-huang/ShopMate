@@ -7,6 +7,7 @@ full list and is the source of truth for operator-facing configuration.
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +29,19 @@ class Settings(BaseSettings):
     llm_tool_degradation_attempts: int = 3
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "qwen3:8b"
+    # T08 eval harness (docs/eval-plan.md §3.2): judge provider/model
+    # overrides. Both default to the configured default chat provider/model
+    # (the eval baseline judge is the baseline provider).
+    judge_provider: Literal["glm", "openai", "ollama"] | None = None
+    judge_model: str | None = None
+
+    @field_validator("judge_provider", "judge_model", mode="before")
+    @classmethod
+    def _empty_str_is_none(cls, value: object) -> object:
+        """An empty env var (``JUDGE_MODEL=``) means "not overridden"."""
+        if value == "":
+            return None
+        return value
     embedding_provider: Literal["auto", "ollama", "glm", "none"] = "auto"
     embedding_model: str = "bge-m3"
     database_url: str = "sqlite+aiosqlite:///./data/shopmate.db"

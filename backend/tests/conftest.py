@@ -49,6 +49,10 @@ SECTION_39_ENV_VARS = [
     "PROFILE_INJECTION_MAX_CHARS",
     "BACKEND_PORT",
     "FRONTEND_PORT",
+    # T08 eval-harness judge overrides (evals/judge): cleared so judge-related
+    # tests are hermetic regardless of the developer's shell env.
+    "JUDGE_PROVIDER",
+    "JUDGE_MODEL",
 ]
 
 
