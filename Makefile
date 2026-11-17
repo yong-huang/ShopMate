@@ -4,7 +4,20 @@
 BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 3000
 
-.PHONY: dev backend frontend catalog catalog-check docker-up docker-down docker-logs smoke-gateway
+# --- Evaluation (Eval Plan, docs/eval-plan.md) -----------------------------
+# PROVIDER/MODEL select the run's chat provider (env passthrough); judge
+# provider/model come from JUDGE_PROVIDER/JUDGE_MODEL (default: run provider).
+
+PROVIDER ?=
+MODEL ?=
+
+eval: ## Run the 32-scenario golden set on the default provider (override: make eval PROVIDER=ollama MODEL=qwen3:8b)
+	cd backend && env $(if $(PROVIDER),LLM_PROVIDER=$(PROVIDER)) $(if $(MODEL),LLM_MODEL=$(MODEL)) uv run python -m evals.runner
+
+eval-compare: ## Merge latest per-provider reports into one comparison matrix
+	cd backend && uv run python -m evals.runner --eval-compare
+
+.PHONY: dev backend frontend catalog catalog-check eval eval-compare docker-up docker-down docker-logs smoke-gateway
 
 dev: ## Run backend and frontend concurrently
 	$(MAKE) -j 2 backend frontend
