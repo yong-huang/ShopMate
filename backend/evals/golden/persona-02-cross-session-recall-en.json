@@ -1,0 +1,25 @@
+{
+  "id": "persona-02-cross-session-recall-en",
+  "category": "personalization",
+  "lang": "en",
+  "title": "Session-end extraction feeds the next turn's context",
+  "turns": [
+    {
+      "user": "I'm really into camping trips lately — show me what you have.",
+      "expect": {
+        "expected_tools_subset": ["search_products"],
+        "min_cards": 1,
+        "max_cards": 4,
+        "card_category_any_of": ["Sports & Outdoors"]
+      }
+    },
+    {
+      "user": "Given what you now know about me, would the Cascade tent suit weekend trips?",
+      "expect": {
+        "expected_tools_subset": ["get_product_details"],
+        "max_cards": 0
+      }
+    }
+  ],
+  "actions": [{ "after_turn": 1, "type": "end_session" }]
+}

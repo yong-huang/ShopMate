@@ -1,0 +1,27 @@
+{
+  "id": "checkout-mixed-journey-zh",
+  "category": "checkout",
+  "lang": "zh",
+  "title": "Add then check out inside one conversation",
+  "turns": [
+    {
+      "user": "买一个 HydroPure 加湿器",
+      "expect": {
+        "expected_tools_subset": ["add_to_cart"],
+        "max_cards": 0,
+        "cart_expected": {
+          "items": [{ "product_id": "HOM-004", "quantity": 1 }],
+          "item_count": 1
+        }
+      }
+    },
+    {
+      "user": "好的，直接下单吧",
+      "expect": {
+        "expected_tools_subset": ["checkout"],
+        "max_cards": 0,
+        "cart_expected": { "items": [], "item_count": 0 }
+      }
+    }
+  ]
+}

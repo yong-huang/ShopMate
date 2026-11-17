@@ -1,0 +1,12 @@
+{
+  "id": "compare-headphones-zh",
+  "category": "comparison",
+  "lang": "zh",
+  "title": "Two-way headphone comparison (Aurora X9 vs Zephyr earbuds)",
+  "turns": [
+    {
+      "user": "帮我比较一下极光 X9 无线降噪耳机和 Zephyr 无线耳机，通勤听歌选哪个好？",
+      "expect": { "expected_tools_subset": ["compare_products"], "max_cards": 0 }
+    }
+  ]
+}

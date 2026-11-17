@@ -1,0 +1,19 @@
+{
+  "id": "cart-add-variant-zh",
+  "category": "cart",
+  "lang": "zh",
+  "title": "Add sneakers with a size variant (EU 42)",
+  "turns": [
+    {
+      "user": "把 CloudStep 云层羊毛鞋 EU 42 码加入购物车",
+      "expect": {
+        "expected_tools_subset": ["add_to_cart"],
+        "max_cards": 0,
+        "cart_expected": {
+          "items": [{ "product_id": "APP-002", "quantity": 1, "variant": { "size": "EU 42" } }],
+          "item_count": 1
+        }
+      }
+    }
+  ]
+}

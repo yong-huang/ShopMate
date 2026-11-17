@@ -1,0 +1,20 @@
+{
+  "id": "cart-quantity-shrink-en",
+  "category": "cart",
+  "lang": "en",
+  "title": "Reduce a line from 2 to 1 (remove + re-add through chat)",
+  "seed_cart": [{ "product_id": "ELE-007", "quantity": 2 }],
+  "turns": [
+    {
+      "user": "Actually I only need one SwiftCharge charger — make it 2 down to 1.",
+      "expect": {
+        "expected_tools_subset": ["get_cart", "remove_from_cart", "add_to_cart"],
+        "max_cards": 0,
+        "cart_expected": {
+          "items": [{ "product_id": "ELE-007", "quantity": 1 }],
+          "item_count": 1
+        }
+      }
+    }
+  ]
+}

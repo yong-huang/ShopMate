@@ -1,0 +1,33 @@
+{
+  "id": "cart-add-two-items-en",
+  "category": "cart",
+  "lang": "en",
+  "title": "Add two different products across two turns",
+  "turns": [
+    {
+      "user": "Add the EverHeat Smart Kettle to my cart.",
+      "expect": {
+        "expected_tools_subset": ["add_to_cart"],
+        "max_cards": 0,
+        "cart_expected": {
+          "items": [{ "product_id": "HOM-002", "quantity": 1 }],
+          "item_count": 1
+        }
+      }
+    },
+    {
+      "user": "Also add the ChefEdge 8-Inch Chef Knife.",
+      "expect": {
+        "expected_tools_subset": ["add_to_cart"],
+        "max_cards": 0,
+        "cart_expected": {
+          "items": [
+            { "product_id": "HOM-002", "quantity": 1 },
+            { "product_id": "HOM-005", "quantity": 1 }
+          ],
+          "item_count": 2
+        }
+      }
+    }
+  ]
+}

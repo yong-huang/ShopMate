@@ -1,0 +1,20 @@
+{
+  "id": "boundary-04-language-switch-zh",
+  "category": "boundary",
+  "lang": "zh",
+  "title": "Mid-conversation language switch is mirrored turn by turn",
+  "turns": [
+    {
+      "user": "Trailblazer雨衣防水等级是多少？",
+      "expect": { "expected_tools_subset": ["get_product_details"], "max_cards": 0, "language": "zh" }
+    },
+    {
+      "user": "OK and how should I wash it?",
+      "expect": {
+        "expected_tools_subset": ["get_product_details"],
+        "max_cards": 0,
+        "language": "en"
+      }
+    }
+  ]
+}

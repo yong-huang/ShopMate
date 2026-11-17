@@ -1,0 +1,18 @@
+{
+  "id": "persona-03-clear-profile-zh",
+  "category": "personalization",
+  "lang": "zh",
+  "title": "Profile clear wipes everything; later turns show no personalization",
+  "profile": { "interests": ["yoga"], "sizes": { "top": "M" } },
+  "turns": [
+    {
+      "user": "你还记得我喜欢什么运动吗？",
+      "expect": { "max_cards": 0 }
+    },
+    {
+      "user": "那随便推荐个水杯吧",
+      "expect": { "max_cards": 0 }
+    }
+  ],
+  "actions": [{ "after_turn": 1, "type": "clear_profile" }]
+}

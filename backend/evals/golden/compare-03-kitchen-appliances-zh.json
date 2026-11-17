@@ -1,0 +1,12 @@
+{
+  "id": "compare-kitchen-appliances-zh",
+  "category": "comparison",
+  "lang": "zh",
+  "title": "Cross-category kitchen comparison (air fryer vs robot vacuum)",
+  "turns": [
+    {
+      "user": "对比一下 CrispAir 空气炸锅和 Kite 扫地机器人，哪个更值得入手？",
+      "expect": { "expected_tools_subset": ["compare_products"], "max_cards": 0 }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "id": "boundary-01-offscope-zh",
+  "category": "boundary",
+  "lang": "zh",
+  "title": "Off-scope request is politely declined",
+  "turns": [
+    {
+      "user": "帮我写一段Python代码，把列表去重",
+      "expect": {
+        "expected_tools_excluded": ["search_products", "add_to_cart", "checkout"],
+        "max_cards": 0
+      }
+    }
+  ]
+}

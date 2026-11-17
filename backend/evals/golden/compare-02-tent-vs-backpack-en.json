@@ -1,0 +1,12 @@
+{
+  "id": "compare-tent-vs-backpack-en",
+  "category": "comparison",
+  "lang": "en",
+  "title": "Situational two-way comparison with a recommendation ask",
+  "turns": [
+    {
+      "user": "Compare the Cascade 2-Person Camping Tent and the Summit 65L Trekking Backpack — I can only buy one this month, which should it be?",
+      "expect": { "expected_tools_subset": ["compare_products"], "max_cards": 0 }
+    }
+  ]
+}
