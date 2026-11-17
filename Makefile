@@ -4,7 +4,7 @@
 BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 3000
 
-.PHONY: dev backend frontend docker-up docker-down docker-logs
+.PHONY: dev backend frontend docker-up docker-down docker-logs smoke-gateway
 
 dev: ## Run backend and frontend concurrently
 	$(MAKE) -j 2 backend frontend
@@ -23,3 +23,6 @@ docker-down: ## Stop the demo stack
 
 docker-logs: ## Tail the structured JSON logs of the demo stack
 	docker compose logs -f
+
+smoke-gateway: ## Live model-gateway smoke test against the configured provider (needs credentials)
+	cd backend && uv run python ../scripts/smoke_gateway.py
