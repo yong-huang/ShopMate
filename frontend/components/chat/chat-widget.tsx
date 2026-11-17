@@ -10,7 +10,7 @@ import {
   type ComparisonPayload,
   type ProductCardPayload,
 } from "@/lib/chat-sse";
-import { imageUrl } from "@/lib/api-client";
+import { API_BASE_URL, imageUrl } from "@/lib/api-client";
 import { RatingStars } from "@/components/storefront/rating-stars";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -92,6 +92,25 @@ export function ChatWidget() {
 
   useEffect(() => {
     setSessionId(getOrCreateSessionId());
+  }, []);
+
+  useEffect(() => {
+    // Browser-unload ping (ticket T07, System Design 3.6): `pagehide` fires
+    // the `POST /api/sessions/{id}/end` beacon so the backend closes the
+    // session and schedules the background profile extraction. sendBeacon is
+    // fire-and-forget and survives the page teardown; the cookie travels
+    // with it (credentials mode include), and failures are silently ignored.
+    function onUnload() {
+      const currentSession = window.localStorage.getItem(SESSION_KEY);
+      if (!currentSession || !navigator.sendBeacon) return;
+      const body = JSON.stringify({ session_id: currentSession });
+      navigator.sendBeacon(
+        `${API_BASE_URL}/api/sessions/${currentSession}/end`,
+        new Blob([body], { type: "text/plain" }),
+      );
+    }
+    window.addEventListener("pagehide", onUnload);
+    return () => window.removeEventListener("pagehide", onUnload);
   }, []);
 
   useEffect(() => {

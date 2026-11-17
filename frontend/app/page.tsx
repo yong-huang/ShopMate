@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { HealthCard } from "@/components/health-card";
+import { PreferencesButton } from "@/components/preferences/preferences-button";
 import { ProductCard } from "@/components/storefront/product-card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -41,7 +42,10 @@ export default async function Home({
   const featured = (fullCatalog ?? []).filter((product) => product.featured);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-10 px-6 py-10">
+    <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col gap-10 px-6 py-10">
+      <div className="absolute right-6 top-10 print:hidden">
+        <PreferencesButton />
+      </div>
       <header className="flex flex-col items-center gap-2 text-center">
         <h1 className="text-4xl font-bold tracking-tight">ShopMate</h1>
         <p className="max-w-prose text-muted-foreground">

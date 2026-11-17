@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # thread per session, so conversation state survives restarts.
     checkpoint_db_url: str = "sqlite+aiosqlite:///./data/checkpoints.db"
     session_idle_ttl_min: int = 15
+    # Profile injection cap (System Design 3.6): the rendered profile block
+    # is truncated to this many characters (~300 tokens at ~4 chars/token).
+    profile_injection_max_chars: int = 1200
     backend_port: int = 8000
     frontend_port: int = 3000
 

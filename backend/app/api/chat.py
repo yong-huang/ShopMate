@@ -43,6 +43,8 @@ from app.db import (
 from app.gateway.errors import GatewayError
 from app.gateway.tools import ToolCall
 from app.logging_config import get_logger
+from app.profile.render import render_profile_block
+from app.profile.service import end_session_if_idle, get_profile_payload, schedule_extraction
 from app.turnlog import TurnContext, current_turn
 
 router = APIRouter(tags=["chat"])
@@ -143,8 +145,17 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
     cookie_sid = request.cookies.get(SESSION_COOKIE)
     if cookie_sid is None:
         cookie_sid = issued_sid = uuid.uuid4().hex
+    # §3.6 session-touch: lazy idle-TTL check, run BEFORE this turn's message
+    # lands. If the previous activity on the session is older than the TTL,
+    # the session is treated as ended and its profile extraction is scheduled
+    # in the background (ADR-007) — never awaited on the request path.
+    idle_extraction_id: str | None = None
     async with sessionmaker() as db:
         await get_or_create_user(db, cookie_sid)
+        if await end_session_if_idle(
+            db, body.session_id, ttl_min=settings.session_idle_ttl_min
+        ):
+            idle_extraction_id = body.session_id
         await get_or_create_session(db, body.session_id, cookie_sid)
         lang = _detect_language(body.message)
         if lang:
@@ -158,6 +169,20 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
     # Correlate the chat turn with the request's access record where possible.
     scope_turn = current_turn()
     request_id = scope_turn.request_id if scope_turn is not None else None
+
+    # §3.6 injection: render this shopper's profile into the context block
+    # (compact, capped). A DB read only — extraction never runs here.
+    profile_block = render_profile_block(
+        await get_profile_payload(sessionmaker, cookie_sid),
+        max_chars=settings.profile_injection_max_chars,
+    )
+    extraction_client = getattr(request.app.state, "extraction_client", None)
+    if idle_extraction_id is not None and extraction_client is not None:
+        logger.info(
+            "profile_extraction_scheduled",
+            extra={"session_id": idle_extraction_id, "trigger": "idle_ttl"},
+        )
+        schedule_extraction(sessionmaker, extraction_client, idle_extraction_id)
 
     async def event_stream() -> AsyncIterator[str]:
         # A chat turn is a standalone TurnContext: the response body streams
@@ -188,7 +213,9 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
         try:
             state_before = await graph.aget_state(config)
             base_count = len(state_before.values.get("messages", []))
-            async for agent_event in stream_agent_turn(graph, body.session_id, body.message):
+            async for agent_event in stream_agent_turn(
+                graph, body.session_id, body.message, profile_block=profile_block
+            ):
                 if isinstance(agent_event, AgentToken):
                     yield _sse("token", {"text": agent_event.text})
                 elif isinstance(agent_event, AgentToolProgress):
