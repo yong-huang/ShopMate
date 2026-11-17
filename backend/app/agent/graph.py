@@ -26,8 +26,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
+from app.agent.cards import CardIssue, card_from_product, parse_card_blocks, validate_card
 from app.agent.prompts import compile_maya_prompt
 from app.agent.tools import MAX_TOOL_HOPS, ToolRegistry, summarize_arguments, tool_registry
+from app.catalog.adapter import CatalogAdapter, JsonCatalogAdapter
 from app.gateway.client import ChatClient
 from app.gateway.errors import ToolCallDegradationError
 from app.gateway.events import FinishEvent
@@ -48,6 +50,16 @@ DEGRADATION_MESSAGE = (
 )
 
 
+# Honest corrective instruction for the one guardrail retry (3.5).
+CORRECTIVE_TEMPLATE = (
+    "Guardrail: your last reply referenced card(s) {failed} that failed "
+    "catalog validation — a non-catalog product id and/or a price/rating "
+    "that does not match tool output. Use tool results only. Rewrite the "
+    "reply with correct product ids, prices and ratings exactly as your "
+    "tools returned them, or reply without any card block."
+)
+
+
 # --- State (System Design 3.2) -------------------------------------------
 
 
@@ -65,7 +77,13 @@ class AgentState(TypedDict):
 
     messages: Annotated[list[AnyMessage], add_messages]
     tool_results: list[ToolResult]  # last hop's tool outputs
-    pending_cards: list[dict[str, Any]]  # ProductCard — T05 fills this
+    pending_cards: list[dict[str, Any]]  # cards attached by tools at execution time (3.3)
+    proposed_cards: list[dict[str, Any]]  # card claims parsed from the model's reply (3.5)
+    validated_cards: list[dict[str, Any]]  # guardrail-approved payloads (3.5)
+    comparison: dict[str, Any] | None  # validated comparison payload (3.3)
+    stripped_card_ids: list[str]  # pre-strip audit trail for the eval harness
+    retried_validation: bool  # the one corrective retry (3.5) already spent
+    validation_done: bool  # validate finalized this turn
     cart_events: list[dict[str, Any]]  # CartEvent — T06 fills this
 
 
@@ -104,8 +122,22 @@ class AgentUsage(BaseModel):
     completion_tokens: int
 
 
+class AgentValidation(BaseModel):
+    """The guardrail verdict for one turn (turn-log telemetry; 3.5).
+
+    ``failed_product_ids`` are the PRE-strip failing card ids of the whole
+    turn — the audit trail the eval harness reads to catch grounding
+    failures the guardrail absorbed.
+    """
+
+    kind: Literal["validation"] = "validation"
+    outcome: Literal["passed", "retried", "stripped"]
+    failed_product_ids: list[str]
+    card_count: int
+
+
 AgentEvent = Annotated[
-    Union[AgentToken, AgentToolProgress, AgentToolDone, AgentUsage],
+    Union[AgentToken, AgentToolProgress, AgentToolDone, AgentUsage, AgentValidation],
     Field(discriminator="kind"),
 ]
 
@@ -165,6 +197,7 @@ async def _chatbot_node(state: AgentState, client: ChatClient, tools: ToolRegist
         return {
             "messages": [AIMessage(content=TOOL_BUDGET_MESSAGE)],
             "tool_results": [],
+            "proposed_cards": [],
         }
 
     system_prompt = compile_maya_prompt()
@@ -191,7 +224,11 @@ async def _chatbot_node(state: AgentState, client: ChatClient, tools: ToolRegist
         text_so_far = "".join(text_parts)
         notice = f"\n\n{DEGRADATION_MESSAGE}" if text_so_far else DEGRADATION_MESSAGE
         writer(AgentToken(text=notice))
-        return {"messages": [AIMessage(content=text_so_far + notice)], "tool_results": []}
+        return {
+            "messages": [AIMessage(content=text_so_far + notice)],
+            "tool_results": [],
+            "proposed_cards": [],
+        }
 
     if usage:
         writer(
@@ -214,6 +251,10 @@ async def _chatbot_node(state: AgentState, client: ChatClient, tools: ToolRegist
     return {
         "messages": [AIMessage(content=content, tool_calls=lc_tool_calls)],
         "tool_results": [],
+        # Model card-block claims (3.5): candidates for the guardrail, never
+        # for direct rendering. Parsed from this pass's text, so a corrective
+        # retry replaces the previous pass's claims wholesale.
+        "proposed_cards": parse_card_blocks(content),
     }
 
 
@@ -223,6 +264,8 @@ async def _tools_node(state: AgentState, tools: ToolRegistry) -> dict[str, Any]:
     last_message = state["messages"][-1]
     results: list[ToolMessage] = []
     hop_results: list[ToolResult] = []
+    hop_cards: list[dict[str, Any]] = []
+    comparison: dict[str, Any] | None = None
     for call in last_message.tool_calls:
         name = call["name"]
         arguments = dict(call.get("args") or {})
@@ -235,18 +278,134 @@ async def _tools_node(state: AgentState, tools: ToolRegistry) -> dict[str, Any]:
         hop_results.append(
             {"name": name, "ok": output.ok, "content": output.content, "latency_ms": latency_ms}
         )
+        hop_cards.extend(output.cards)
+        if output.comparison is not None:
+            comparison = output.comparison
         writer(AgentToolDone(name=name, ok=output.ok, latency_ms=latency_ms))
-    return {"messages": results, "tool_results": hop_results}
+    # Card payloads attach at tool-execution time (3.3): pending_cards carry
+    # what the tools actually returned, across every hop of this turn.
+    return {
+        "messages": results,
+        "tool_results": hop_results,
+        "pending_cards": list(state.get("pending_cards") or []) + hop_cards,
+        "comparison": comparison if comparison is not None else state.get("comparison"),
+    }
 
 
-async def _validate_node(state: AgentState) -> dict[str, Any]:
-    """Guardrail pass over pending cards (System Design 3.5).
+# --- Guardrail (System Design 3.5) -----------------------------------------
 
-    Passthrough in this ticket — T05 plugs validation logic in here. The node
-    exists so the graph topology is final and nothing streams as a card
-    without passing through it.
+
+def _hint_for(pending_cards: list[dict[str, Any]], product_id: str) -> str:
+    """Reuse the tool-produced match hint when the product was retrieved."""
+    for card in pending_cards:
+        if card.get("product_id") == product_id:
+            return str(card.get("match_hint") or "")
+    return ""
+
+
+def _validate_turn_cards(
+    state: AgentState, adapter: CatalogAdapter
+) -> tuple[list[dict[str, Any]], list[CardIssue]]:
+    """Guardrail pass over one chatbot pass (System Design 3.5).
+
+    Model card claims are the render candidates, in the model's order; each
+    must reference an existing catalog product with matching price/rating and
+    a schema-shaped payload. When the model emitted no card blocks at all,
+    the tool-attached cards render instead (ground truth fallback).
+
+    Returns the accepted card payloads plus every failing claim.
     """
-    return {}
+    proposals = state.get("proposed_cards") or []
+    pending = state.get("pending_cards") or []
+    accepted: list[dict[str, Any]] = []
+    failures: list[CardIssue] = []
+
+    if proposals:
+        seen: set[str] = set()
+        for claim in proposals:
+            issue = validate_card(claim, adapter)
+            if issue is not None:
+                failures.append(issue)
+                continue
+            product_id = str(claim["product_id"])
+            if product_id in seen:
+                continue
+            seen.add(product_id)
+            product = adapter.get_product(product_id)
+            if product is None:  # unreachable (validate_card checks); defensive
+                continue
+            accepted.append(
+                card_from_product(product, _hint_for(pending, product_id)).model_dump()
+            )
+        return accepted, failures
+
+    # No model blocks: fall back to the tool-attached cards (already catalog
+    # data; validated defensively so nothing renders un-checked).
+    for card in pending:
+        product = adapter.get_product(str(card.get("product_id")))
+        if product is None:
+            continue
+        accepted.append(
+            card_from_product(product, str(card.get("match_hint") or "")).model_dump()
+        )
+    return accepted, failures
+
+
+def _validate_comparison(
+    comparison: dict[str, Any] | None, adapter: CatalogAdapter
+) -> dict[str, Any] | None:
+    """Keep the comparison payload only when every id is catalog-verified."""
+    if not comparison:
+        return None
+    ids = comparison.get("product_ids") or []
+    if not ids or not all(adapter.get_product(str(i)) is not None for i in ids):
+        return None
+    return comparison
+
+
+async def _validate_node(state: AgentState, adapter: CatalogAdapter) -> dict[str, Any]:
+    """Guardrail pass over pending cards (System Design 3.5, PRD FR-8).
+
+    First failure of the turn: append one corrective system message and run
+    the chatbot node once more. After the retry (or with no failures), strip
+    whatever is still invalid and finalize the turn's cards — the SSE layer
+    renders only these validated payloads, never model prose.
+    """
+    writer = get_stream_writer()
+    accepted, failures = _validate_turn_cards(state, adapter)
+    comparison = _validate_comparison(state.get("comparison"), adapter)
+    prior_failures = list(state.get("stripped_card_ids") or [])
+    turn_failures = prior_failures + [issue.product_id for issue in failures]
+
+    if failures and not state.get("retried_validation"):
+        failed_ids = sorted({issue.product_id for issue in failures})
+        reasons = sorted({issue.reason for issue in failures})
+        corrective = CORRECTIVE_TEMPLATE.format(failed=", ".join(failed_ids))
+        if reasons != ["unknown_product"]:
+            corrective += f" (failures: {', '.join(reasons)})"
+        return {
+            "messages": [SystemMessage(content=corrective)],
+            "stripped_card_ids": turn_failures,
+            "retried_validation": True,
+        }
+
+    if turn_failures:
+        outcome = "retried" if accepted and not failures else "stripped"
+    else:
+        outcome = "passed"
+    writer(
+        AgentValidation(
+            outcome=outcome,
+            failed_product_ids=sorted(set(turn_failures)),
+            card_count=len(accepted),
+        )
+    )
+    return {
+        "validated_cards": accepted,
+        "comparison": comparison,
+        "stripped_card_ids": sorted(set(turn_failures)),
+        "validation_done": True,
+    }
 
 
 # --- Graph assembly --------------------------------------------------------
@@ -257,14 +416,18 @@ def build_agent_graph(
     tools: ToolRegistry | None = None,
     checkpointer: Any = None,
     temperature: float = DEFAULT_TEMPERATURE,
+    adapter: CatalogAdapter | None = None,
 ) -> Any:
     """Compile the Maya graph.
 
     ``client`` is injected (composition root / tests) per ADR-001; ``tools``
     defaults to this ticket's registry (placeholder ``get_store_info``).
     ``checkpointer`` (SqliteSaver family) gives one thread per session.
+    ``adapter`` is the catalog the guardrail validates against (3.5) and
+    defaults to the committed demo catalog.
     """
     registry = tools if tools is not None else tool_registry()
+    catalog = adapter if adapter is not None else JsonCatalogAdapter()
 
     async def chatbot(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         return await _chatbot_node(state, client, registry, temperature)
@@ -272,22 +435,34 @@ def build_agent_graph(
     async def tools_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
         return await _tools_node(state, registry)
 
+    async def validate(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+        return await _validate_node(state, catalog)
+
     def _route_after_chatbot(state: AgentState) -> str:
         last_message = state["messages"][-1]
         if getattr(last_message, "tool_calls", None):
             return "tools"
         return "validate"
 
+    def _route_after_validate(state: AgentState) -> str:
+        # One corrective retry per turn (3.5): back to the chatbot until the
+        # verdict is in, then END.
+        if state.get("validation_done"):
+            return "end"
+        return "retry"
+
     builder = StateGraph(AgentState)
     builder.add_node("chatbot", chatbot)
     builder.add_node("tools", tools_node)
-    builder.add_node("validate", _validate_node)
+    builder.add_node("validate", validate)
     builder.add_edge(START, "chatbot")
     builder.add_conditional_edges(
         "chatbot", _route_after_chatbot, {"tools": "tools", "validate": "validate"}
     )
     builder.add_edge("tools", "chatbot")
-    builder.add_edge("validate", END)
+    builder.add_conditional_edges(
+        "validate", _route_after_validate, {"retry": "chatbot", "end": END}
+    )
     return builder.compile(checkpointer=checkpointer)
 
 
@@ -301,11 +476,23 @@ async def stream_agent_turn(
 ) -> AsyncIterator[AgentEvent]:
     """Run one bounded agent turn on ``thread_id``, yielding agent events.
 
-    Custom stream events (tokens, tool progress) are the consumer-facing
-    surface the SSE endpoint maps onto the §3.7 event contract.
+    Custom stream events (tokens, tool progress, the validation verdict) are
+    the consumer-facing surface the SSE endpoint maps onto the §3.7 event
+    contract. Card/comparison state resets here so nothing leaks across turns.
     """
     config = {"configurable": {"thread_id": thread_id}}
-    inputs = {"messages": [HumanMessage(content=message)]}
+    inputs: dict[str, Any] = {
+        "messages": [HumanMessage(content=message)],
+        "tool_results": [],
+        "pending_cards": [],
+        "proposed_cards": [],
+        "validated_cards": [],
+        "comparison": None,
+        "stripped_card_ids": [],
+        "retried_validation": False,
+        "validation_done": False,
+        "cart_events": [],
+    }
     async for event in graph.astream(inputs, config, stream_mode="custom"):
         yield event
 
