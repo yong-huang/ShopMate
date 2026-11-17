@@ -23,7 +23,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.catalog.adapter import CatalogAdapter
-from app.catalog.schemas import ProductDetail
+from app.catalog.schemas import ProductSummary
 
 # Price/rating equality tolerance: JSON round-trips of catalog floats must
 # compare equal even after the model copies them through its own text.
@@ -54,7 +54,7 @@ def card_image_url(product_id: str) -> str:
     return f"/static/catalog/images/{product_id}.svg"
 
 
-def card_from_product(product: ProductDetail, match_hint: str = "") -> ProductCardPayload:
+def card_from_product(product: ProductSummary, match_hint: str = "") -> ProductCardPayload:
     """Build a card payload from a catalog record (ground truth, never prose)."""
     return ProductCardPayload(
         product_id=product.id,

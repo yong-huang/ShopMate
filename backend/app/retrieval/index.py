@@ -22,6 +22,8 @@ Chat tools (T04) call ``search``; the products REST endpoint uses the
 adapter directly for plain storefront browsing.
 """
 
+from typing import Any
+
 import numpy as np
 from pydantic import BaseModel
 
@@ -93,12 +95,28 @@ class RetrievalIndex:
         query: str,
         category: str | None = None,
         limit: int = 5,
+        *,
+        price_min: float | None = None,
+        price_max: float | None = None,
+        tags: list[str] | None = None,
+        attributes: dict[str, Any] | None = None,
     ) -> list[SearchHit]:
-        """Search the catalog; see the module docstring for the recipe."""
+        """Search the catalog; see the module docstring for the recipe.
+
+        Structured filters (System Design 3.4 step 1) narrow the candidate
+        set before scoring: exact category, inclusive price band, tag
+        conjunction (all tags must match), and exact attribute values.
+        """
         candidates = [
             product for product in self._products
-            if category is None
-            or product.category.casefold() == category.casefold()
+            if _passes_filters(
+                product,
+                category=category,
+                price_min=price_min,
+                price_max=price_max,
+                tags=tags,
+                attributes=attributes,
+            )
         ]
         if not candidates:
             return []
@@ -138,6 +156,34 @@ class RetrievalIndex:
             )
             for product_id, score in fused[:limit]
         ]
+
+
+def _passes_filters(
+    product: ProductDetail,
+    *,
+    category: str | None,
+    price_min: float | None,
+    price_max: float | None,
+    tags: list[str] | None,
+    attributes: dict[str, Any] | None,
+) -> bool:
+    """Structured candidate filter (System Design 3.4 step 1)."""
+    if category is not None and product.category.casefold() != category.casefold():
+        return False
+    if price_min is not None and product.price < price_min:
+        return False
+    if price_max is not None and product.price > price_max:
+        return False
+    if tags:
+        product_tags = {tag.casefold() for tag in product.tags}
+        if not all(tag.casefold() in product_tags for tag in tags):
+            return False
+    if attributes:
+        for key, value in attributes.items():
+            actual = product.attributes.get(key)
+            if actual is None or str(actual).casefold() != str(value).casefold():
+                return False
+    return True
 
 
 def _match_hint(product: ProductDetail, query: str) -> str:
