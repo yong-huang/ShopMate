@@ -37,6 +37,8 @@ from app.db import (
 from app.gateway.errors import GatewayError
 from app.gateway.tools import ToolCall
 from app.logging_config import get_logger
+from app.profile.render import render_profile_block
+from app.profile.service import get_profile_payload
 from app.turnlog import TurnContext, current_turn
 
 router = APIRouter(tags=["chat"])
@@ -144,6 +146,13 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
     scope_turn = current_turn()
     request_id = scope_turn.request_id if scope_turn is not None else None
 
+    # §3.6 injection: render this shopper's profile into the context block
+    # (compact, capped). A DB read only — extraction never runs here.
+    profile_block = render_profile_block(
+        await get_profile_payload(sessionmaker, cookie_sid),
+        max_chars=settings.profile_injection_max_chars,
+    )
+
     async def event_stream() -> AsyncIterator[str]:
         # A chat turn is a standalone TurnContext: the response body streams
         # after the logging middleware's scope has already exited, so its
@@ -173,7 +182,9 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
         try:
             state_before = await graph.aget_state(config)
             base_count = len(state_before.values.get("messages", []))
-            async for agent_event in stream_agent_turn(graph, body.session_id, body.message):
+            async for agent_event in stream_agent_turn(
+                graph, body.session_id, body.message, profile_block=profile_block
+            ):
                 if isinstance(agent_event, AgentToken):
                     yield _sse("token", {"text": agent_event.text})
                 elif isinstance(agent_event, AgentToolProgress):

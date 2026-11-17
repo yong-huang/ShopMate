@@ -67,6 +67,10 @@ class AgentState(TypedDict):
     tool_results: list[ToolResult]  # last hop's tool outputs
     pending_cards: list[dict[str, Any]]  # ProductCard — T05 fills this
     cart_events: list[dict[str, Any]]  # CartEvent — T06 fills this
+    # Rendered shopper profile block (T07, §3.6 injection): set per turn by
+    # the chat endpoint from the profile store; the chatbot node renders it
+    # into the system prompt's PROFILE_BLOCK seam.
+    profile_block: str
 
 
 # --- Events yielded by stream_agent_turn ----------------------------------
@@ -167,7 +171,9 @@ async def _chatbot_node(state: AgentState, client: ChatClient, tools: ToolRegist
             "tool_results": [],
         }
 
-    system_prompt = compile_maya_prompt()
+    system_prompt = compile_maya_prompt(
+        profile_block=state.get("profile_block") or ""
+    )
     wire_messages = [ChatMessage(role="system", content=system_prompt)]
     wire_messages.extend(_to_chat_message(message) for message in messages)
 
@@ -298,14 +304,23 @@ async def stream_agent_turn(
     graph: Any,
     thread_id: str,
     message: str,
+    profile_block: str | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """Run one bounded agent turn on ``thread_id``, yielding agent events.
 
     Custom stream events (tokens, tool progress) are the consumer-facing
     surface the SSE endpoint maps onto the §3.7 event contract.
+    ``profile_block`` (T07) is the rendered shopper profile the chatbot node
+    injects into the system prompt for this turn.
     """
     config = {"configurable": {"thread_id": thread_id}}
-    inputs = {"messages": [HumanMessage(content=message)]}
+    inputs: dict[str, Any] = {
+        "messages": [HumanMessage(content=message)],
+        # Always overwrite the channel (even with ""): the checkpointer keeps
+        # the previous turn's value otherwise, so a cleared profile would
+        # still be injected on the next turn of the same thread.
+        "profile_block": profile_block or "",
+    }
     async for event in graph.astream(inputs, config, stream_mode="custom"):
         yield event
 

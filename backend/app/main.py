@@ -16,7 +16,7 @@ from app.agent.graph import (
     close_checkpointer,
     open_checkpointer,
 )
-from app.api import chat, health, products
+from app.api import chat, health, products, profile
 from app.catalog.adapter import JsonCatalogAdapter, default_catalog_dir
 from app.config import Settings, get_settings
 from app.db import create_engine_and_sessionmaker, init_db
@@ -102,6 +102,7 @@ def create_app(
     app.include_router(health.router, prefix="/api")
     app.include_router(products.router, prefix="/api")
     app.include_router(chat.router, prefix="/api")
+    app.include_router(profile.router, prefix="/api")
 
     images_dir = default_catalog_dir() / "images"
     if images_dir.is_dir():
