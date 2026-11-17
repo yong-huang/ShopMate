@@ -2,7 +2,7 @@
 
 > A conversational shopping assistant for e-commerce — Maya guides shoppers from fuzzy intent to purchase, grounded strictly in the product catalog.
 
-**Status: design phase.** The documentation below is the review-ready deliverable; implementation follows after sign-off.
+**Status: implementation started.** The design documentation below is the source of truth; scaffolding (backend skeleton, frontend shell, dev harness) has landed.
 
 ---
 
@@ -57,23 +57,31 @@ SQLite (sessions · carts · orders · profiles)   Catalog: products.json + adap
 | [System Design](docs/system-design.md) | Architecture, agent design, tool & API contracts, retrieval, guardrails, profile pipeline, data model, deployment, 8 ADRs |
 | [Evaluation Plan](docs/eval-plan.md) | Golden set taxonomy, metrics & gates, LLM-judge rubric, harness & provider comparison |
 
-## Getting Started (planned — available once implementation starts)
+## Getting Started
 
 ```bash
-# Development
-make dev                      # backend :8000 · frontend :3000
+# One-time setup
+cd backend && uv sync && cd ..     # Python 3.13 + dependencies via uv
+cd frontend && npm install && cd .. # frontend dependencies
 
-# Demo
-docker compose up             # Ollama stays on the host (host.docker.internal)
+# Development (backend :8000 · frontend :3000, concurrently)
+make dev                           # or: make backend / make frontend
 
+# Configuration
+cp backend/.env.example backend/.env   # then set LLM_API_KEY (or switch provider)
+```
+
+The backend starts without any API key: `GET /api/health` reports the
+configured provider as `not_configured` and the app runs its liveness duties
+normally. The home page (`http://localhost:3000`) shows this health status.
+
+```bash
 # Provider presets (backend/.env)
 LLM_PROVIDER=glm              # default; set LLM_API_KEY — done
 LLM_PROVIDER=ollama           # local-first; no key, embeddings included
 
-# Evaluation
-make eval                     # golden set on default provider
-make eval PROVIDER=ollama MODEL=qwen3:8b
-make eval-compare             # cross-provider report
+# Backend tests
+cd backend && uv run pytest
 ```
 
 ## Repository Layout (planned)

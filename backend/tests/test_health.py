@@ -88,6 +88,14 @@ def test_health_allows_cross_origin_calls_from_the_frontend() -> None:
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
+def test_empty_base_url_is_reported_as_null() -> None:
+    client = make_client(Settings(llm_base_url="", _env_file=None))
+
+    body = client.get("/api/health").json()
+
+    assert body["provider"]["base_url"] is None
+
+
 def test_cors_origin_follows_configured_frontend_port() -> None:
     client = make_client(Settings(frontend_port=3100, _env_file=None))
 

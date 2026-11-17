@@ -40,10 +40,11 @@ def provider_status(settings: Settings) -> ProviderStatus:
             status="configured",
         )
     key_configured = bool(settings.llm_api_key)
+    base_url = settings.llm_base_url or None  # empty env var means unset
     return ProviderStatus(
         name=settings.llm_provider,
         model=settings.llm_model,
-        base_url=settings.llm_base_url,
+        base_url=base_url,
         api_key_configured=key_configured,
         status="configured" if key_configured else "not_configured",
     )
