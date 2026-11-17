@@ -145,3 +145,28 @@ async def test_vector_index_builds_from_provider_embeddings() -> None:
 
     hits = index.search_by_vector(np.array([1.0, 0.0]))
     assert [doc_id for doc_id, _ in hits] == ["a", "b"]
+
+
+def test_embedding_provider_factory_follows_the_config_chain(tmp_path, monkeypatch):
+    """EMBEDDING_PROVIDER chain (3.4): auto/ollama -> Ollama client; none/glm -> degrade."""
+    from app.config import Settings
+    from app.retrieval.vector import (
+        DEFAULT_TIMEOUT_SECONDS,
+        OllamaEmbeddingClient,
+        create_embedding_provider,
+    )
+
+    settings = Settings(_env_file=None, embedding_provider="none")
+    assert create_embedding_provider(settings) is None
+
+    settings = Settings(_env_file=None, embedding_provider="glm")
+    assert create_embedding_provider(settings) is None  # GLM client not built yet
+
+    settings = Settings(_env_file=None, embedding_provider="auto")
+    provider = create_embedding_provider(settings)
+    assert isinstance(provider, OllamaEmbeddingClient)
+    assert provider.model == "bge-m3"
+    # Index build embeds the whole catalog in one batch: the client timeout
+    # must exceed the 2s per-request default or the vector half would
+    # silently degrade on every real startup (found in live check).
+    assert provider._timeout_seconds > DEFAULT_TIMEOUT_SECONDS

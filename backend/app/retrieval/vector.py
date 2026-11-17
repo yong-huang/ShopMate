@@ -18,6 +18,9 @@ import httpx
 import numpy as np
 
 DEFAULT_TIMEOUT_SECONDS = 2.0
+# App-lifespan index builds embed the whole catalog (~150 docs) in one
+# batch; 2s only bounds the single-query case.
+BUILD_TIMEOUT_SECONDS = 120.0
 DEFAULT_CACHE_DIR = Path(".embeddings")
 
 
@@ -145,6 +148,10 @@ def create_embedding_provider(settings) -> EmbeddingProvider | None:
         return OllamaEmbeddingClient(
             base_url=settings.ollama_base_url,
             model=settings.embedding_model,
+            # Index build embeds the whole catalog in one batch — far more
+            # work than one query — so the per-request timeout must leave
+            # room for it (the 2s default is a query-time bound).
+            timeout_seconds=BUILD_TIMEOUT_SECONDS,
         )
     return None
 
