@@ -4,7 +4,7 @@
 BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 3000
 
-.PHONY: dev backend frontend
+.PHONY: dev backend frontend smoke-gateway
 
 dev: ## Run backend and frontend concurrently
 	$(MAKE) -j 2 backend frontend
@@ -14,3 +14,6 @@ backend: ## Run the FastAPI backend (uvicorn --reload)
 
 frontend: ## Run the Next.js frontend (next dev)
 	cd frontend && npm run dev -- --port $(FRONTEND_PORT)
+
+smoke-gateway: ## Live model-gateway smoke test against the configured provider (needs credentials)
+	cd backend && uv run python ../scripts/smoke_gateway.py
