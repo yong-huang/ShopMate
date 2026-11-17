@@ -294,6 +294,13 @@ COLOURS: dict[str, list[str]] = {
     "Sports & Outdoors": ["Blaze Orange", "Storm Grey", "Pine Green", "Cobalt", "Red"],
 }
 
+# Review author pool; distinct authors are sampled per product.
+AUTHOR_POOL: list[str] = [
+    "Alex T.", "Amara", "Ben L.", "Chen W.", "Dana K.", "Elif", "Franco",
+    "Grace", "Hana", "Ivan", "June", "Kofi", "Lin X.", "Marta", "Noah",
+    "Omar", "Pia", "Quinn", "Ravi", "Sara", "Tomás", "Uma", "Wei", "Yara",
+]
+
 # Review templates: (rating, comment). One or two are sampled per product.
 REVIEW_TEMPLATES: list[dict[str, Any]] = [
     {"rating": 5, "comment": "Exactly as described — quality is a notch "

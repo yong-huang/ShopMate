@@ -32,6 +32,7 @@ from typing import Any
 
 from app.catalog.curated import CURATED_PRODUCTS
 from app.catalog.templates import (
+    AUTHOR_POOL,
     BRANDS,
     CATEGORY_META,
     CATEGORY_ORDER,
@@ -145,7 +146,10 @@ def _templated_record(rng: random.Random, category: str, id_: str, seq: int,
     )
 
     sample = rng.sample(REVIEW_TEMPLATES, rng.choice([1, 2]))
-    reviews = [dict(review) for review in sample]
+    authors = rng.sample(AUTHOR_POOL, len(sample))
+    reviews = [
+        {**review, "author": author} for review, author in zip(sample, authors)
+    ]
 
     price = round(type_spec["price"] * (1 + rng.uniform(-PRICE_JITTER, PRICE_JITTER)), 2)
     initials = "".join(word[0] for word in type_spec["name_en"].split()[:3]).upper()
