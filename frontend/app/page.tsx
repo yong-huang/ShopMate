@@ -43,7 +43,13 @@ export default async function Home({
 
   return (
     <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col gap-10 px-6 py-10">
-      <div className="absolute right-6 top-10 print:hidden">
+      <div className="absolute right-6 top-10 flex items-center gap-3 print:hidden">
+        <Link
+          href="/cart"
+          className="text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Cart
+        </Link>
         <PreferencesButton />
       </div>
       <header className="flex flex-col items-center gap-2 text-center">

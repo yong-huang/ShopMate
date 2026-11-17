@@ -7,7 +7,10 @@
  * backend on the first call and reused by sending `credentials: "include"`.
  */
 
-import { API_BASE_URL } from "@/lib/api-client";
+import { API_BASE_URL, type CartSummary } from "@/lib/api-client";
+
+/** The `cart_update` payload (§3.7) — the cart summary after a cart-affecting tool. */
+export type CartUpdatePayload = CartSummary;
 
 /** One validated product card (§3.7 `product_card` payload — tool-verified). */
 export interface ProductCardPayload {
@@ -38,6 +41,7 @@ export type ChatSseEvent =
   | { type: "tool_call"; name: string; args_summary: string }
   | { type: "product_card"; card: ProductCardPayload }
   | { type: "comparison"; comparison: ComparisonPayload }
+  | { type: "cart_update"; cart: CartUpdatePayload }
   | { type: "done"; message_id: number | null }
   | { type: "error"; code: string; message: string };
 
@@ -203,6 +207,34 @@ function parseFrame(frame: string): ChatSseEvent | null {
       const comparison = toComparison(data);
       return comparison ? { type: "comparison", comparison } : null;
     }
+    case "cart_update": {
+      // Cart-affecting turns carry the server-verified cart summary (T06).
+      if (!Array.isArray(data.items)) return null;
+      const items = (data.items as Record<string, unknown>[]).map((item) => ({
+        cart_item_id: Number(item.cart_item_id ?? 0),
+        product_id: String(item.product_id ?? ""),
+        name_en: String(item.name_en ?? ""),
+        name_zh: String(item.name_zh ?? ""),
+        unit_price: Number(item.unit_price ?? 0),
+        currency: String(item.currency ?? "USD"),
+        quantity: Number(item.quantity ?? 0),
+        variant:
+          item.variant && typeof item.variant === "object"
+            ? (item.variant as Record<string, string>)
+            : null,
+        line_total: Number(item.line_total ?? 0),
+        image: String(item.image ?? ""),
+      }));
+      return {
+        type: "cart_update",
+        cart: {
+          items,
+          item_count: Number(data.item_count ?? items.length),
+          total: Number(data.total ?? 0),
+          currency: String(data.currency ?? "USD"),
+        },
+      };
+    }
     case "done":
       return {
         type: "done",
@@ -215,7 +247,6 @@ function parseFrame(frame: string): ChatSseEvent | null {
         message: String(data.message ?? "Unknown chat error."),
       };
     default:
-      // cart_update arrives with T06.
       return null;
   }
 }

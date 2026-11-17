@@ -9,6 +9,7 @@ import {
   type ChatSseEvent,
   type ComparisonPayload,
   type ProductCardPayload,
+  type CartUpdatePayload,
 } from "@/lib/chat-sse";
 import { API_BASE_URL, imageUrl } from "@/lib/api-client";
 import { RatingStars } from "@/components/storefront/rating-stars";
@@ -34,6 +35,7 @@ interface ChatMessage {
   content: string;
   cards?: ProductCardPayload[];
   comparison?: ComparisonPayload;
+  cart?: CartUpdatePayload;
   lang?: "en" | "zh";
 }
 
@@ -87,6 +89,7 @@ export function ChatWidget() {
   const partialRef = useRef("");
   const cardsRef = useRef<ProductCardPayload[]>([]);
   const comparisonRef = useRef<ComparisonPayload | null>(null);
+  const cartRef = useRef<CartUpdatePayload | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -128,6 +131,7 @@ export function ChatWidget() {
     partialRef.current = "";
     cardsRef.current = [];
     comparisonRef.current = null;
+    cartRef.current = null;
     setErrorText(null);
     setToolProgress(null);
   }
@@ -145,6 +149,7 @@ export function ChatWidget() {
     partialRef.current = "";
     cardsRef.current = [];
     comparisonRef.current = null;
+    cartRef.current = null;
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -169,6 +174,10 @@ export function ChatWidget() {
         case "comparison":
           comparisonRef.current = event.comparison;
           break;
+        case "cart_update":
+          // Server-verified cart state after a cart-affecting tool (T06).
+          cartRef.current = event.cart;
+          break;
         case "done":
           break;
         case "error":
@@ -191,10 +200,16 @@ export function ChatWidget() {
         setErrorText("Something went wrong while chatting. Please try again.");
       }
     } finally {
-      if (partialRef.current || cardsRef.current.length || comparisonRef.current) {
+      if (
+        partialRef.current ||
+        cardsRef.current.length ||
+        comparisonRef.current ||
+        cartRef.current
+      ) {
         const assistantText = stripCardBlocks(partialRef.current);
         const cards = cardsRef.current;
         const comparison = comparisonRef.current;
+        const cart = cartRef.current;
         setMessages((current) => [
           ...current,
           {
@@ -202,6 +217,7 @@ export function ChatWidget() {
             content: assistantText,
             cards: cards.length ? cards : undefined,
             comparison: comparison ?? undefined,
+            cart: cart ?? undefined,
             lang: userLang,
           },
         ]);
@@ -209,6 +225,7 @@ export function ChatWidget() {
       partialRef.current = "";
       cardsRef.current = [];
       comparisonRef.current = null;
+      cartRef.current = null;
       setPartial("");
       setToolProgress(null);
       setStreaming(false);
@@ -294,6 +311,7 @@ export function ChatWidget() {
                   <MessageCards cards={message.cards} lang={message.lang ?? "en"} />
                 ) : null}
                 {message.comparison ? <ComparisonMatrix comparison={message.comparison} /> : null}
+                {message.cart ? <CartUpdateLine cart={message.cart} /> : null}
               </div>
             ))}
 
@@ -430,6 +448,30 @@ function ChatProductCard({ card, lang }: { card: ProductCardPayload; lang: "en" 
         <RatingStars rating={card.rating} className="text-[11px]" />
       </CardFooter>
     </Card>
+  );
+}
+
+/**
+ * Compact cart summary line (ticket T06, §3.7 `cart_update`): one server-
+ * verified line with the item count, total, and a link to the cart page —
+ * the storefront drawer reads the same cart rows.
+ */
+function CartUpdateLine({ cart }: { cart: CartUpdatePayload }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-xl border bg-muted/40 px-3 py-2 text-xs">
+      <span className="text-muted-foreground">
+        Cart updated · {cart.item_count} item{cart.item_count === 1 ? "" : "s"} ·{" "}
+        <span className="text-foreground font-semibold tabular-nums">
+          ${cart.total.toFixed(2)}
+        </span>
+      </span>
+      <a
+        href="/cart"
+        className="font-medium underline underline-offset-2 hover:no-underline"
+      >
+        View cart
+      </a>
+    </div>
   );
 }
 

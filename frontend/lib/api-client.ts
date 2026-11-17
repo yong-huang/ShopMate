@@ -223,3 +223,133 @@ export function recordProductView(productId: string): void {
     // Best-effort capture: never disturb the product page.
   });
 }
+
+/**
+ * Cart API (ticket T06, System Design 3.7 / PRD FR-4). The same cart the
+ * chat tools mutate: the anonymous `shopmate_sid` cookie is the identity,
+ * so every request sends `credentials: "include"`.
+ */
+
+/** One cart line (server-computed line prices; variant when present). */
+export interface CartItemPayload {
+  cart_item_id: number;
+  product_id: string;
+  name_en: string;
+  name_zh: string;
+  unit_price: number;
+  currency: string;
+  quantity: number;
+  variant: Record<string, string> | null;
+  line_total: number;
+  image: string;
+}
+
+/** Shape of `GET /api/cart` and of every cart mutation response. */
+export interface CartSummary {
+  items: CartItemPayload[];
+  item_count: number;
+  total: number;
+  currency: string;
+}
+
+/** A demo order placed by `POST /api/checkout` (PRD FR-5). */
+export interface OrderPayload {
+  order_id: string;
+  status: string;
+  currency: string;
+  total: number;
+  items: {
+    product_id: string;
+    name: string;
+    unit_price: number;
+    quantity: number;
+    variant: Record<string, string> | null;
+    line_total: number;
+  }[];
+  demo_notice: string;
+  shipping_note: string | null;
+}
+
+/** Fetch the shopper's cart (empty summary before anything is added). */
+export async function getCart(signal?: AbortSignal): Promise<CartSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/cart`, {
+    signal,
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as CartSummary;
+}
+
+/** Add one product line (optionally with size/color variant) to the cart. */
+export async function addCartItem(request: {
+  product_id: string;
+  quantity?: number;
+  variant?: Record<string, string>;
+}): Promise<CartSummary> {
+  const response = await fetch(`${API_BASE_URL}/api/cart/items`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as CartSummary;
+}
+
+/** Update one cart line's quantity. */
+export async function updateCartItem(
+  cartItemId: number,
+  quantity: number,
+): Promise<CartSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/cart/items/${encodeURIComponent(String(cartItemId))}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ quantity }),
+    },
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as CartSummary;
+}
+
+/** Remove one cart line. */
+export async function removeCartItem(
+  cartItemId: number,
+): Promise<CartSummary> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/cart/items/${encodeURIComponent(String(cartItemId))}`,
+    { method: "DELETE", credentials: "include" },
+  );
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as CartSummary;
+}
+
+/**
+ * Place the demo order (PRD FR-5). Refuses an empty cart with a 409
+ * `empty_cart` ApiError; never involves payment.
+ */
+export async function checkoutCart(
+  shippingNote?: string,
+): Promise<OrderPayload> {
+  const response = await fetch(`${API_BASE_URL}/api/checkout`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ shipping_note: shippingNote ?? null }),
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as OrderPayload;
+}

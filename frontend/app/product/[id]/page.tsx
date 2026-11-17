@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AddToCart } from "@/components/storefront/add-to-cart";
 import { RatingStars } from "@/components/storefront/rating-stars";
 import { ViewPing } from "@/components/storefront/view-ping";
 import { Badge } from "@/components/ui/badge";
@@ -36,9 +37,12 @@ export default async function ProductPage({
     <div className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-10">
       {/* Interaction capture: append this product to the shopper's view log. */}
       <ViewPing productId={product.id} />
-      <nav className="text-sm text-muted-foreground" aria-label="Breadcrumb">
+      <nav className="flex items-center justify-between text-sm text-muted-foreground" aria-label="Breadcrumb">
         <Link href="/" className="hover:underline">
           ← Back to storefront
+        </Link>
+        <Link href="/cart" className="hover:underline">
+          Cart
         </Link>
       </nav>
 
@@ -93,6 +97,9 @@ export default async function ProductPage({
               {product.description_zh}
             </p>
           </section>
+
+          {/* Storefront add-to-cart (T06): same cart the chat tools mutate. */}
+          <AddToCart product={product} />
 
           <SpecsTable product={product} />
         </div>
