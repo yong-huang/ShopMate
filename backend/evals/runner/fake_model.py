@@ -281,7 +281,7 @@ class HermeticScriptedModel:
                 return key
         for key, quantity in wanted.items():
             if key in sim and sim[key] > quantity:
-                sim[key] = quantity  # caller scripts the re-add via add_to_cart
+                sim[key] = 0  # the remove lands first; _next_add_args re-adds
                 return key
         return None
 

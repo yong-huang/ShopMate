@@ -1,0 +1,22 @@
+{
+  "id": "guide-running-shoes-zh",
+  "category": "guided_discovery",
+  "lang": "zh",
+  "title": "Running shoes for a beginner, price ceiling in turn 2",
+  "turns": [
+    {
+      "user": "我刚开始跑步，想买双合适的跑步鞋",
+      "expect": { "clarifying_questions_max": 2, "max_cards": 0 }
+    },
+    {
+      "user": "我每周跑三次，预算五百美元以内",
+      "expect": {
+        "expected_tools_subset": ["search_products"],
+        "min_cards": 1,
+        "max_cards": 4,
+        "card_category_any_of": ["Apparel & Accessories"],
+        "card_price_max": 500
+      }
+    }
+  ]
+}

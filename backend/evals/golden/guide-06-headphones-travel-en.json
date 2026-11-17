@@ -1,0 +1,22 @@
+{
+  "id": "guide-headphones-travel-en",
+  "category": "guided_discovery",
+  "lang": "en",
+  "title": "Travel headphones, budget under $300 in turn 2",
+  "turns": [
+    {
+      "user": "I need new headphones for long flights.",
+      "expect": { "clarifying_questions_max": 2, "max_cards": 0 }
+    },
+    {
+      "user": "Noise cancelling is a must, and I'd rather stay under $300.",
+      "expect": {
+        "expected_tools_subset": ["search_products"],
+        "min_cards": 1,
+        "max_cards": 4,
+        "card_category_any_of": ["Electronics"],
+        "card_price_max": 300
+      }
+    }
+  ]
+}

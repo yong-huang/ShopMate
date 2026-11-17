@@ -1,0 +1,12 @@
+{
+  "id": "intro-reviews-backpack-en",
+  "category": "product_introduction",
+  "lang": "en",
+  "title": "Review-grounded answer for the Summit 65L backpack",
+  "turns": [
+    {
+      "user": "What do reviews say about the Summit 65L Trekking Backpack? Any common complaints?",
+      "expect": { "expected_tools_subset": ["get_product_details"], "max_cards": 0 }
+    }
+  ]
+}

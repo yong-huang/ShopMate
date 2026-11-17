@@ -1,0 +1,12 @@
+{
+  "id": "intro-sizing-jacket-zh",
+  "category": "product_introduction",
+  "lang": "zh",
+  "title": "Sizing chart question for the Trailblazer rain jacket",
+  "turns": [
+    {
+      "user": "Trailblazer这件防水雨衣都有哪些尺码？我身高175cm应该选哪个？",
+      "expect": { "expected_tools_subset": ["get_product_details"], "max_cards": 0 }
+    }
+  ]
+}

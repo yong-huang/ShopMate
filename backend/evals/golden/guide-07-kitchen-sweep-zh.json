@@ -1,0 +1,17 @@
+{
+  "id": "guide-kitchen-sweep-zh",
+  "category": "guided_discovery",
+  "lang": "zh",
+  "title": "Open-ended category sweep of the kitchen section",
+  "turns": [
+    {
+      "user": "最近想添置一些厨房用品，你们店里有什么值得推荐的？",
+      "expect": {
+        "expected_tools_subset": ["search_products"],
+        "min_cards": 2,
+        "max_cards": 4,
+        "card_category_any_of": ["Home & Kitchen"]
+      }
+    }
+  ]
+}

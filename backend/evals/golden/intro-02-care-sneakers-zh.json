@@ -1,0 +1,12 @@
+{
+  "id": "intro-care-sneakers-zh",
+  "category": "product_introduction",
+  "lang": "zh",
+  "title": "Care instructions for merino sneakers",
+  "turns": [
+    {
+      "user": "CloudStep羊毛鞋要怎么清洗和保养？可以机洗吗？",
+      "expect": { "expected_tools_subset": ["get_product_details"], "max_cards": 0 }
+    }
+  ]
+}

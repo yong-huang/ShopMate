@@ -1,0 +1,16 @@
+{
+  "id": "intro-unknown-detail-en",
+  "category": "product_introduction",
+  "lang": "en",
+  "title": "Question about a detail the catalog does not define — honest unknown",
+  "turns": [
+    {
+      "user": "Does the Aurora X9 headphones support satellite connectivity?",
+      "expect": {
+        "expected_tools_subset": ["get_product_details"],
+        "max_cards": 0,
+        "must_not_mention": ["yes, it supports satellite"]
+      }
+    }
+  ]
+}

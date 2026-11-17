@@ -1,0 +1,22 @@
+{
+  "id": "guide-camping-budget-en",
+  "category": "guided_discovery",
+  "lang": "en",
+  "title": "Camping trip for two, budget constraint under $300",
+  "turns": [
+    {
+      "user": "We're going camping next month and I need some gear.",
+      "expect": { "clarifying_questions_max": 2, "max_cards": 0 }
+    },
+    {
+      "user": "It's for two people, total budget under $300 for the essentials.",
+      "expect": {
+        "expected_tools_subset": ["search_products"],
+        "min_cards": 2,
+        "max_cards": 4,
+        "card_category_any_of": ["Sports & Outdoors"],
+        "card_price_max": 300
+      }
+    }
+  ]
+}
