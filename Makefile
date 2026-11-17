@@ -4,7 +4,7 @@
 BACKEND_PORT ?= 8000
 FRONTEND_PORT ?= 3000
 
-.PHONY: dev backend frontend catalog catalog-check
+.PHONY: dev backend frontend catalog catalog-check docker-up docker-down docker-logs smoke-gateway
 
 dev: ## Run backend and frontend concurrently
 	$(MAKE) -j 2 backend frontend
@@ -20,3 +20,15 @@ catalog: ## Regenerate backend/data/catalog (products.json + SVG images)
 
 catalog-check: ## Build check: total count + 30/40/40/40 category split
 	cd backend && uv run python -m app.catalog.generate --check
+
+docker-up: ## Build and start the demo stack (api + web) detached
+	docker compose up --build -d
+
+docker-down: ## Stop the demo stack
+	docker compose down
+
+docker-logs: ## Tail the structured JSON logs of the demo stack
+	docker compose logs -f
+
+smoke-gateway: ## Live model-gateway smoke test against the configured provider (needs credentials)
+	cd backend && uv run python ../scripts/smoke_gateway.py

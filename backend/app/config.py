@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     llm_model: str = "glm-5.3-flash"
     llm_base_url: str | None = None
     llm_api_key: str | None = None
+    # Consecutive tool-enabled attempts without a valid tool call before the
+    # gateway raises ToolCallDegradationError (System Design 3.1 degradation).
+    llm_tool_degradation_attempts: int = 3
     ollama_base_url: str = "http://localhost:11434"
     ollama_chat_model: str = "qwen3:8b"
     embedding_provider: Literal["auto", "ollama", "glm", "none"] = "auto"

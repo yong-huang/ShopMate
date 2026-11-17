@@ -84,6 +84,20 @@ LLM_PROVIDER=ollama           # local-first; no key, embeddings included
 cd backend && uv run pytest
 ```
 
+### Demo deployment (Docker)
+
+```bash
+cp .env.example .env                # GLM mode: set LLM_API_KEY; Ollama mode: LLM_PROVIDER=ollama
+make docker-up                      # docker compose up --build -d  (api :8000 · web :3000)
+make docker-logs                    # structured JSON logs (one chat_turn record per turn)
+make docker-down
+```
+
+The stack runs the FastAPI backend (`api`) and the built Next.js app (`web`);
+runtime data persists in `./backend/data`. Ollama stays on the host and is
+reached from the containers via `host.docker.internal:11434` — no config
+change needed relative to `make dev`.
+
 ## Repository Layout (planned)
 
 ```
