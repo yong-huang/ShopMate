@@ -159,3 +159,67 @@ export function summarizeCategories(items: ProductSummary[]): CategorySummary[] 
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
 }
+
+/** Shape of `GET /api/profile` (System Design 3.6 / 3.8, ticket T07). */
+export interface ProfileResponse {
+  interests: string[];
+  price_band: string | null;
+  sizes: Record<string, string>;
+  likes: string[];
+  dislikes: string[];
+  notes: string[];
+  interaction_log: ProfileInteractionEvent[];
+  updated_at: string | null;
+}
+
+/** One interaction-log entry (product viewed / added / purchased). */
+export interface ProfileInteractionEvent {
+  type: string;
+  at: string;
+  product_id: string | null;
+  session_id: string | null;
+}
+
+/** Fetch the shopper's cross-session profile (cookie-linked). */
+export async function getProfile(
+  signal?: AbortSignal,
+): Promise<ProfileResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/profile`, {
+    signal,
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+  return (await response.json()) as ProfileResponse;
+}
+
+/** Clear the profile entirely (preferences and interaction log). */
+export async function deleteProfile(signal?: AbortSignal): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/profile`, {
+    method: "DELETE",
+    signal,
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw await parseError(response);
+  }
+}
+
+/**
+ * Record one product-view interaction (System Design 3.6 capture stage).
+ *
+ * Fire-and-forget from the product page: `keepalive` lets the request
+ * complete even if the shopper navigates away immediately; failures are
+ * swallowed — the interaction log is best-effort by design.
+ */
+export function recordProductView(productId: string): void {
+  fetch(`${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/view`, {
+    method: "POST",
+    credentials: "include",
+    keepalive: true,
+  }).catch(() => {
+    // Best-effort capture: never disturb the product page.
+  });
+}

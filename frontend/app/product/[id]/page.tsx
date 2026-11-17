@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { RatingStars } from "@/components/storefront/rating-stars";
+import { ViewPing } from "@/components/storefront/view-ping";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -33,6 +34,8 @@ export default async function ProductPage({
 
   return (
     <div className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-10">
+      {/* Interaction capture: append this product to the shopper's view log. */}
+      <ViewPing productId={product.id} />
       <nav className="text-sm text-muted-foreground" aria-label="Breadcrumb">
         <Link href="/" className="hover:underline">
           ← Back to storefront
