@@ -7,6 +7,31 @@ import pytest
 
 from app.logging_config import JsonLineFormatter, LOGGER_NAME
 
+
+@pytest.fixture
+async def app_factory(tmp_path):
+    """Callable fixture returning a lifespan-open app (caller picks the fake).
+
+    Shared by the API-level test modules (cart/chat/profile parity); the
+    original definition in ``test_chat_api.py`` still shadows this one there.
+    """
+    from .test_chat_api import open_app
+
+    opened = []
+
+    async def _open(chat_client=None, settings=None):
+        agen = open_app(tmp_path, chat_client, settings)
+        app = await agen.__anext__()
+        opened.append(agen)
+        return app
+
+    yield _open
+    for agen in opened:
+        try:
+            await agen.__anext__()
+        except StopAsyncIteration:
+            pass
+
 # Every configuration variable from System Design section 3.9. Tests clear
 # these so behavior is hermetic regardless of the developer's shell env.
 SECTION_39_ENV_VARS = [

@@ -1,7 +1,6 @@
 """FastAPI application entry point (composition root)."""
 
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -18,7 +17,7 @@ from app.agent.graph import (
     open_checkpointer,
 )
 from app.agent.tools import tool_registry
-from app.api import chat, health, products, profile, sessions
+from app.api import cart, chat, health, products, profile, sessions
 from app.cart.tools import register_cart_tools
 from app.catalog.adapter import CatalogAdapter, JsonCatalogAdapter, default_catalog_dir
 from app.config import Settings, get_settings
@@ -126,6 +125,7 @@ def create_app(
     app.state.extraction_client = extraction_client
     app.include_router(health.router, prefix="/api")
     app.include_router(products.router, prefix="/api")
+    app.include_router(cart.router, prefix="/api")
     app.include_router(chat.router, prefix="/api")
     app.include_router(profile.router, prefix="/api")
     app.include_router(sessions.router, prefix="/api")

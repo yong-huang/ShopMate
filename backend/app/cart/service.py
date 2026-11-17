@@ -45,6 +45,13 @@ VARIANT_KEYS = ("size", "color")
 
 CURRENCY = "USD"
 
+# FR-5: every checkout surface relays this demo disclaimer — one copy, so
+# the tools and the REST endpoint never drift.
+DEMO_DISCLAIMER = (
+    "This is a demo checkout: no payment was processed and nothing will ship. "
+    "演示结账：未发生真实支付。"
+)
+
 
 class CartError(Exception):
     """A cart validation failure with a stable machine-readable ``code``."""
@@ -381,6 +388,6 @@ async def checkout(
         "currency": CURRENCY,
         "total": total,
         "items": items_payload,
-        "demo": True,
+        "demo_notice": DEMO_DISCLAIMER,
         "shipping_note": shipping_note,
     }

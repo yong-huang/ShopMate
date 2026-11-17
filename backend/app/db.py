@@ -16,7 +16,6 @@ profile pipeline (T07) reads/writes ``profiles`` via
 :func:`record_interaction` for added/purchased events.
 """
 
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 

@@ -17,7 +17,7 @@ from app.gateway.events import FinishEvent, TokenDeltaEvent, ToolCallEvent
 from app.gateway.tools import ToolCall
 
 from .agent.mocks import ScriptedChatClient
-from .test_chat_api import app_factory, parse_sse, stream_chat  # noqa: F401
+from .test_chat_api import parse_sse, stream_chat
 
 SESSION_COOKIE = "shopmate_sid"
 SHOPPER = {"shopmate_sid": "shopper-cart-0001"}

@@ -24,11 +24,6 @@ from app.cart.service import CartError, add_item, cart_summary, checkout, remove
 from app.catalog.adapter import CatalogAdapter
 from app.gateway.tools import ToolSpec
 
-DEMO_DISCLAIMER = (
-    "This is a demo checkout: no payment was processed and nothing will ship. "
-    "演示结账：未发生真实支付。"
-)
-
 _ADD_TO_CART_TOOL_SPEC = ToolSpec(
     name="add_to_cart",
     description="Add a catalog product to the shopper's cart, optionally with "
@@ -215,9 +210,8 @@ class CartTools:
             "total": 0.0,
             "currency": order["currency"],
         }
-        payload = {**order, "demo_notice": DEMO_DISCLAIMER}
         return ToolOutput(
-            content=json.dumps(payload, ensure_ascii=False, indent=1),
+            content=json.dumps(order, ensure_ascii=False, indent=1),
             ok=True,
             cart_summary=summary,
         )
