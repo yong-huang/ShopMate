@@ -28,3 +28,6 @@ backend/data/*.db-journal
 .DS_Store
 .idea/
 .vscode/
+
+# Embedding cache (disk-cached bge-m3 vectors, ADR-003)
+backend/.embeddings/
