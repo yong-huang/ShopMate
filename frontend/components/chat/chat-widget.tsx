@@ -3,21 +3,38 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2, Maximize2, MessageCircle, Minimize2, Plus, Send, Square, X } from "lucide-react";
 
-import { ChatError, sendChatMessage, type ChatSseEvent } from "@/lib/chat-sse";
+import {
+  ChatError,
+  sendChatMessage,
+  type ChatSseEvent,
+  type ComparisonPayload,
+  type ProductCardPayload,
+} from "@/lib/chat-sse";
+import { imageUrl } from "@/lib/api-client";
+import { RatingStars } from "@/components/storefront/rating-stars";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
 
 /**
- * Maya chat widget (ticket T04): floating launcher + expandable panel.
+ * Maya chat widget (ticket T04: widget shell; T05: product cards).
  *
  * Consumes the backend SSE stream (text streaming, tool-call progress) and
  * keeps one conversation thread per browser via a localStorage session id;
  * the anonymous `shopmate_sid` cookie is managed by the backend through
- * `credentials: "include"`. Product cards arrive in T05.
+ * `credentials: "include"`.
+ *
+ * Product cards and comparison matrices render ONLY from validated
+ * `product_card` / `comparison` SSE events (backend guardrail, System
+ * Design 3.5) — never from the model's prose. The `product-card` fenced
+ * blocks Maya writes are stripped from displayed text.
  */
 
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  cards?: ProductCardPayload[];
+  comparison?: ComparisonPayload;
+  lang?: "en" | "zh";
 }
 
 const GREETING: ChatMessage = {
@@ -37,6 +54,22 @@ function getOrCreateSessionId(): string {
   return created;
 }
 
+/** Strip Maya's `product-card` fenced blocks — cards render from SSE only. */
+export function stripCardBlocks(text: string): string {
+  const withoutComplete = text.replace(/```product-card\s*\n[\s\S]*?```\n?/g, "");
+  // Drop a still-streaming (unclosed) block tail as well.
+  const openIndex = withoutComplete.indexOf("```product-card");
+  if (openIndex === -1) return withoutComplete;
+  return withoutComplete.slice(0, openIndex);
+}
+
+/** Best-effort en/zh detection (same CJK-share heuristic as the backend). */
+function detectLang(text: string): "en" | "zh" {
+  if (!text.trim()) return "en";
+  const cjk = [...text].filter((ch) => ch >= "\u4e00" && ch <= "\u9fff").length;
+  return cjk / text.length >= 0.2 ? "zh" : "en";
+}
+
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -52,6 +85,8 @@ export function ChatWidget() {
   const [sessionId, setSessionId] = useState("");
 
   const partialRef = useRef("");
+  const cardsRef = useRef<ProductCardPayload[]>([]);
+  const comparisonRef = useRef<ComparisonPayload | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -72,6 +107,8 @@ export function ChatWidget() {
     setMessages([GREETING]);
     setPartial("");
     partialRef.current = "";
+    cardsRef.current = [];
+    comparisonRef.current = null;
     setErrorText(null);
     setToolProgress(null);
   }
@@ -80,12 +117,15 @@ export function ChatWidget() {
     const text = draft.trim();
     if (!text || streaming || !sessionId) return;
 
+    const userLang = detectLang(text);
     setMessages((current) => [...current, { role: "user", content: text }]);
     setDraft("");
     setErrorText(null);
     setStreaming(true);
     setPartial("");
     partialRef.current = "";
+    cardsRef.current = [];
+    comparisonRef.current = null;
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -102,6 +142,13 @@ export function ChatWidget() {
           break;
         case "tool_call":
           setToolProgress({ name: event.name, args_summary: event.args_summary });
+          break;
+        case "product_card":
+          // Validated card event (3.5) — the only product rendering source.
+          cardsRef.current = [...cardsRef.current, event.card];
+          break;
+        case "comparison":
+          comparisonRef.current = event.comparison;
           break;
         case "done":
           break;
@@ -125,11 +172,24 @@ export function ChatWidget() {
         setErrorText("Something went wrong while chatting. Please try again.");
       }
     } finally {
-      if (partialRef.current) {
-        const assistantText = partialRef.current;
-        setMessages((current) => [...current, { role: "assistant", content: assistantText }]);
+      if (partialRef.current || cardsRef.current.length || comparisonRef.current) {
+        const assistantText = stripCardBlocks(partialRef.current);
+        const cards = cardsRef.current;
+        const comparison = comparisonRef.current;
+        setMessages((current) => [
+          ...current,
+          {
+            role: "assistant",
+            content: assistantText,
+            cards: cards.length ? cards : undefined,
+            comparison: comparison ?? undefined,
+            lang: userLang,
+          },
+        ]);
       }
       partialRef.current = "";
+      cardsRef.current = [];
+      comparisonRef.current = null;
       setPartial("");
       setToolProgress(null);
       setStreaming(false);
@@ -209,10 +269,21 @@ export function ChatWidget() {
 
           <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
             {messages.map((message, index) => (
-              <Bubble key={index} message={message} />
+              <div key={index} className="space-y-2">
+                <Bubble message={{ ...message, content: stripCardBlocks(message.content) }} />
+                {message.cards?.length ? (
+                  <MessageCards cards={message.cards} lang={message.lang ?? "en"} />
+                ) : null}
+                {message.comparison ? <ComparisonMatrix comparison={message.comparison} /> : null}
+              </div>
             ))}
 
-            {partial && <Bubble message={{ role: "assistant", content: partial }} streaming />}
+            {partial && (
+              <Bubble
+                message={{ role: "assistant", content: stripCardBlocks(partial) }}
+                streaming
+              />
+            )}
 
             {toolProgress && (
               <div className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -296,6 +367,82 @@ function Bubble({
         {message.content}
         {streaming && <span className="ml-0.5 animate-pulse">▍</span>}
       </div>
+    </div>
+  );
+}
+
+/** One validated product card: image, bilingual name, price, rating, hint. */
+function MessageCards({ cards, lang }: { cards: ProductCardPayload[]; lang: "en" | "zh" }) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {cards.map((card) => (
+        <ChatProductCard key={card.product_id} card={card} lang={lang} />
+      ))}
+    </div>
+  );
+}
+
+function ChatProductCard({ card, lang }: { card: ProductCardPayload; lang: "en" | "zh" }) {
+  const primaryName = lang === "zh" ? card.name_zh || card.name_en : card.name_en;
+  const secondaryName = lang === "zh" ? card.name_en : card.name_zh;
+  return (
+    <Card size="sm" className="gap-2 py-2">
+      {/* Backend-served generated SVG; payload is guardrail-validated. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={imageUrl(card.image_url)}
+        alt={`${card.name_en} / ${card.name_zh}`}
+        className="aspect-square w-full object-cover"
+        loading="lazy"
+      />
+      <CardContent className="space-y-1 px-2">
+        <p className="line-clamp-2 text-xs leading-snug font-medium">{primaryName}</p>
+        <p className="line-clamp-1 text-muted-foreground text-[11px]" lang={lang === "zh" ? "en" : "zh"}>
+          {secondaryName}
+        </p>
+        {card.match_hint && (
+          <p className="text-muted-foreground line-clamp-2 text-[11px] italic">{card.match_hint}</p>
+        )}
+      </CardContent>
+      <CardFooter className="justify-between gap-1 px-2 pb-1">
+        <span className="text-xs font-semibold tabular-nums">
+          ${card.price.toFixed(2)}
+        </span>
+        <RatingStars rating={card.rating} className="text-[11px]" />
+      </CardFooter>
+    </Card>
+  );
+}
+
+/** Validated comparison matrix (catalog attributes only, System Design 3.5). */
+function ComparisonMatrix({ comparison }: { comparison: ComparisonPayload }) {
+  const { columns, rows } = comparison.matrix;
+  return (
+    <div className="overflow-x-auto rounded-xl border bg-background p-2">
+      <table className="w-full border-collapse text-xs">
+        <thead>
+          <tr>
+            <th className="text-muted-foreground px-2 py-1 text-left font-medium">#</th>
+            {columns.map((id) => (
+              <th key={id} className="px-2 py-1 text-left font-semibold">
+                {id}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.label} className="border-t">
+              <td className="text-muted-foreground px-2 py-1 font-medium">{row.label}</td>
+              {columns.map((id) => (
+                <td key={id} className="px-2 py-1 tabular-nums">
+                  {row.values[id] ?? "—"}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

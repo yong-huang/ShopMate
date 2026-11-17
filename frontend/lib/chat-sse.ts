@@ -9,11 +9,35 @@
 
 import { API_BASE_URL } from "@/lib/api-client";
 
+/** One validated product card (§3.7 `product_card` payload — tool-verified). */
+export interface ProductCardPayload {
+  product_id: string;
+  name_en: string;
+  name_zh: string;
+  price: number;
+  currency: string;
+  rating: number;
+  image_url: string;
+  match_hint: string;
+}
+
+/** One validated comparison matrix (§3.7 `comparison` payload). */
+export interface ComparisonPayload {
+  product_ids: string[];
+  matrix: {
+    columns: string[];
+    rows: { label: string; values: Record<string, string | null> }[];
+  };
+  recommendation: string;
+}
+
 /** One parsed SSE event from the chat stream (§3.7 event contract). */
 export type ChatSseEvent =
   | { type: "session"; session_id: string; user_id: string }
   | { type: "token"; text: string }
   | { type: "tool_call"; name: string; args_summary: string }
+  | { type: "product_card"; card: ProductCardPayload }
+  | { type: "comparison"; comparison: ComparisonPayload }
   | { type: "done"; message_id: number | null }
   | { type: "error"; code: string; message: string };
 
@@ -96,6 +120,34 @@ export async function sendChatMessage(
   }
 }
 
+/** Build the comparison payload defensively (catalog-verified matrix only). */
+function toComparison(data: Record<string, unknown>): ComparisonPayload | null {
+  if (!Array.isArray(data.product_ids) || !data.product_ids.length || !data.matrix) {
+    return null;
+  }
+  const matrix = (data.matrix ?? {}) as Record<string, unknown>;
+  const columns = Array.isArray(matrix.columns) ? matrix.columns.map(String) : [];
+  const rawRows = Array.isArray(matrix.rows) ? matrix.rows : [];
+  const rows = rawRows.map((row) => {
+    const record = (row ?? {}) as Record<string, unknown>;
+    const values = (record.values ?? {}) as Record<string, unknown>;
+    return {
+      label: String(record.label ?? ""),
+      values: Object.fromEntries(
+        Object.entries(values).map(([key, value]) => [
+          key,
+          value === null || value === undefined ? null : String(value),
+        ]),
+      ),
+    };
+  });
+  return {
+    product_ids: data.product_ids.map(String),
+    matrix: { columns, rows },
+    recommendation: String(data.recommendation ?? ""),
+  };
+}
+
 /** Parse one SSE frame ("event: name\ndata: json") into a typed event. */
 function parseFrame(frame: string): ChatSseEvent | null {
   let name = "";
@@ -131,6 +183,26 @@ function parseFrame(frame: string): ChatSseEvent | null {
         name: String(data.name ?? ""),
         args_summary: String(data.args_summary ?? ""),
       };
+    case "product_card":
+      // Validated payload only (backend guardrail, System Design 3.5).
+      if (!data.product_id) return null;
+      return {
+        type: "product_card",
+        card: {
+          product_id: String(data.product_id),
+          name_en: String(data.name_en ?? ""),
+          name_zh: String(data.name_zh ?? ""),
+          price: Number(data.price ?? 0),
+          currency: String(data.currency ?? "USD"),
+          rating: Number(data.rating ?? 0),
+          image_url: String(data.image_url ?? ""),
+          match_hint: String(data.match_hint ?? ""),
+        },
+      };
+    case "comparison": {
+      const comparison = toComparison(data);
+      return comparison ? { type: "comparison", comparison } : null;
+    }
     case "done":
       return {
         type: "done",
@@ -143,7 +215,7 @@ function parseFrame(frame: string): ChatSseEvent | null {
         message: String(data.message ?? "Unknown chat error."),
       };
     default:
-      // product_card / comparison / cart_update arrive in later tickets.
+      // cart_update arrives with T06.
       return null;
   }
 }
