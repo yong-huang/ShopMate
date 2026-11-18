@@ -32,3 +32,6 @@ backend/data/*.db-journal
 # Embedding cache (disk-cached bge-m3 vectors, ADR-003)
 backend/.embeddings/
 backend/evals/reports/
+backend/data/checkpoints.db-shm
+backend/data/checkpoints.db-wal
+*.swp
