@@ -15,6 +15,7 @@ chat provider, so the baseline judge = the baseline provider.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from pathlib import Path
 from app.catalog.adapter import CatalogAdapter
 from app.config import Settings
 from app.gateway.client import ChatClient
+from app.gateway.errors import GatewayError
 from app.gateway.messages import ChatMessage
 from app.profile.extract import parse_json_object
 
@@ -180,9 +182,25 @@ class Judge:
             ChatMessage(role="user", content=payload),
         ]
         parts: list[str] = []
-        async for event in self._client.stream(messages, tools=None, temperature=JUDGE_TEMPERATURE):
-            if event.type == "token_delta":
-                parts.append(event.text)
+        last_error: Exception | None = None
+        for attempt in range(2):  # one retry on transient provider faults
+            try:
+                parts = []
+                async for event in self._client.stream(
+                    messages, tools=None, temperature=JUDGE_TEMPERATURE
+                ):
+                    if event.type == "token_delta":
+                        parts.append(event.text)
+                last_error = None
+                break
+            except GatewayError as exc:
+                # A long run must not die on a judge blip: record it honestly
+                # (the harness turns JudgeError into a per-turn failure).
+                last_error = exc
+                if attempt == 0:
+                    await asyncio.sleep(2.0)
+        if last_error is not None:
+            raise JudgeError(f"judge provider call failed: {last_error}") from last_error
         reply = "".join(parts).strip()
         if not reply:
             raise JudgeError("judge returned an empty reply")
