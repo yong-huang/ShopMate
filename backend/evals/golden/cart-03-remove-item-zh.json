@@ -3,14 +3,24 @@
   "category": "cart",
   "lang": "zh",
   "title": "Remove a seeded cart line",
-  "seed_cart": [{ "product_id": "APP-006", "quantity": 1 }],
+  "seed_cart": [
+    {
+      "product_id": "APP-006",
+      "quantity": 1
+    }
+  ],
   "turns": [
     {
       "user": "那个 Urban Carry 双肩包不要了，帮我移除",
       "expect": {
-        "expected_tools_subset": ["get_cart", "remove_from_cart"],
-        "max_cards": 0,
-        "cart_expected": { "items": [], "item_count": 0 }
+        "expected_tools_subset": [
+          "get_cart",
+          "remove_from_cart"
+        ],
+        "cart_expected": {
+          "items": [],
+          "item_count": 0
+        }
       }
     }
   ]

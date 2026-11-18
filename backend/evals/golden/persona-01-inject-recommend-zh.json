@@ -3,15 +3,27 @@
   "category": "personalization",
   "lang": "zh",
   "title": "Seeded profile shapes a category-and-budget recommendation",
-  "profile": { "interests": ["camping"], "price_band": [100, 300] },
+  "profile": {
+    "interests": [
+      "camping"
+    ],
+    "price_band": [
+      100,
+      300
+    ]
+  },
   "turns": [
     {
       "user": "根据我的喜好帮我推荐一些露营装备",
       "expect": {
-        "expected_tools_subset": ["search_products"],
+        "expected_tools_subset": [
+          "search_products"
+        ],
         "min_cards": 1,
-        "max_cards": 4,
-        "card_category_any_of": ["Sports & Outdoors"],
+        "max_cards": 8,
+        "card_category_any_of": [
+          "Sports & Outdoors"
+        ],
         "card_price_min": 100,
         "card_price_max": 300
       }

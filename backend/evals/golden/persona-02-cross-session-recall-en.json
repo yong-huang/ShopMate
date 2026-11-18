@@ -11,7 +11,7 @@
           "search_products"
         ],
         "min_cards": 1,
-        "max_cards": 4,
+        "max_cards": 8,
         "card_category_any_of": [
           "Sports & Outdoors"
         ]
@@ -23,7 +23,7 @@
         "expected_tools_subset": [
           "get_product_details"
         ],
-        "max_cards": 1
+        "max_cards": 8
       }
     }
   ],

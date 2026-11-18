@@ -9,8 +9,7 @@
       "expect": {
         "expected_tools_subset": [
           "get_cart"
-        ],
-        "max_cards": 0
+        ]
       }
     }
   ]

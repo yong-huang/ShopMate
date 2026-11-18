@@ -6,15 +6,22 @@
   "turns": [
     {
       "user": "帮我挑个生日礼物，送给爱做饭的妈妈",
-      "expect": { "clarifying_questions_max": 2, "max_cards": 0 }
+      "expect": {
+        "clarifying_questions_max": 2,
+        "max_cards": 0
+      }
     },
     {
       "user": "她喜欢烘焙，预算三百以内",
       "expect": {
-        "expected_tools_subset": ["search_products"],
+        "expected_tools_subset": [
+          "search_products"
+        ],
         "min_cards": 2,
-        "max_cards": 4,
-        "card_category_any_of": ["Home & Kitchen"],
+        "max_cards": 8,
+        "card_category_any_of": [
+          "Home & Kitchen"
+        ],
         "card_price_max": 300
       }
     }

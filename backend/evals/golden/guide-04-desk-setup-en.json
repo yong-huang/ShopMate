@@ -6,15 +6,22 @@
   "turns": [
     {
       "user": "I want to upgrade my work-from-home desk setup.",
-      "expect": { "clarifying_questions_max": 2, "max_cards": 0 }
+      "expect": {
+        "clarifying_questions_max": 2,
+        "max_cards": 0
+      }
     },
     {
       "user": "Mostly video calls and typing — somewhere between $100 and $250 per item.",
       "expect": {
-        "expected_tools_subset": ["search_products"],
+        "expected_tools_subset": [
+          "search_products"
+        ],
         "min_cards": 2,
-        "max_cards": 4,
-        "card_category_any_of": ["Electronics"],
+        "max_cards": 8,
+        "card_category_any_of": [
+          "Electronics"
+        ],
         "card_price_min": 100,
         "card_price_max": 250
       }

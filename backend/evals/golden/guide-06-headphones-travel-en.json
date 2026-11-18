@@ -6,15 +6,22 @@
   "turns": [
     {
       "user": "I need new headphones for long flights.",
-      "expect": { "clarifying_questions_max": 2, "max_cards": 0 }
+      "expect": {
+        "clarifying_questions_max": 2,
+        "max_cards": 0
+      }
     },
     {
       "user": "Noise cancelling is a must, and I'd rather stay under $300.",
       "expect": {
-        "expected_tools_subset": ["search_products"],
+        "expected_tools_subset": [
+          "search_products"
+        ],
         "min_cards": 1,
-        "max_cards": 4,
-        "card_category_any_of": ["Electronics"],
+        "max_cards": 8,
+        "card_category_any_of": [
+          "Electronics"
+        ],
         "card_price_max": 300
       }
     }

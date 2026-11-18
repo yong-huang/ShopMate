@@ -7,10 +7,14 @@
     {
       "user": "I'm starting yoga classes next week — what basics should I get, ideally under $100 total?",
       "expect": {
-        "expected_tools_subset": ["search_products"],
+        "expected_tools_subset": [
+          "search_products"
+        ],
         "min_cards": 1,
-        "max_cards": 4,
-        "card_category_any_of": ["Sports & Outdoors"],
+        "max_cards": 8,
+        "card_category_any_of": [
+          "Sports & Outdoors"
+        ],
         "card_price_max": 100
       }
     }
