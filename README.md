@@ -2,7 +2,7 @@
 
 > A conversational shopping assistant for e-commerce — Maya guides shoppers from fuzzy intent to purchase, grounded strictly in the product catalog.
 
-**Status: implementation started.** The design documentation below is the source of truth; scaffolding (backend skeleton, frontend shell, dev harness) has landed.
+**Status: implemented (v1 complete).** All ten implementation tickets are merged; the evaluation harness ships with the app. The release gate report was produced on the local provider preset (`ollama/qwen3:8b`); re-run `make eval` on the GLM preset when an API key is configured.
 
 ---
 
