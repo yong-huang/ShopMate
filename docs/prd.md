@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft for review (design phase — implementation not started) |
+| **Status** | Implemented (v1) — see GitHub issues #1–#10 and the eval gate report |
 | **Version** | 1.0 |
 | **Last updated** | 2026-11-16 |
 | **Related docs** | [System Design](./system-design.md) · [Evaluation Plan](./eval-plan.md) |

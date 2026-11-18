@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft for review (design phase — implementation not started) |
+| **Status** | Implemented (v1) — ADRs below reflect the as-built system |
 | **Version** | 1.0 |
 | **Last updated** | 2026-11-16 |
 | **Related docs** | [PRD](./prd.md) · [Evaluation Plan](./eval-plan.md) |

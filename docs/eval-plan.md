@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft for review (design phase — implementation not started) |
+| **Status** | Implemented — harness in `backend/evals/`, gate report under `backend/evals/reports/` |
 | **Version** | 1.0 |
 | **Last updated** | 2026-11-16 |
 | **Related docs** | [PRD](./prd.md) · [System Design](./system-design.md) |
