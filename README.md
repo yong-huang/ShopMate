@@ -24,6 +24,21 @@ The assistant core is **platform-agnostic** (all commerce data flows through ada
 - 🌐 **Bilingual** — English / Chinese storefront data and conversation
 - 📊 **Measurable** — 32-scenario golden set with rule-based gates + LLM-as-judge, runnable per provider
 
+## Screenshots
+
+*(Captured from the running app — local Ollama `qwen3:8b` preset.)*
+
+| | |
+|---|---|
+| **Storefront** — 150-product demo catalog, bilingual, category browsing | **Guided selling in chat** — Maya clarifies, searches the catalog, and renders validated product cards with match hints |
+| ![Storefront home](docs/screenshots/01-storefront-home.png) | ![Chat guided selling](docs/screenshots/02-chat-guided-selling.png) |
+| **Product detail** — bilingual copy, variant pickers, spec table | **Cart** — shared state between chat and storefront |
+| ![Product detail](docs/screenshots/03-product-detail.png) | ![Cart](docs/screenshots/04-cart.png) |
+| **Demo checkout confirmation** — clearly labeled, no payment | **Order success** — persisted order with name/price snapshots |
+| ![Checkout confirmation](docs/screenshots/05-checkout-confirm.png) | ![Order success](docs/screenshots/06-checkout-success.png) |
+| **Preferences panel** — what Maya learned, viewable and clearable anytime | |
+| ![Preferences panel](docs/screenshots/07-preferences-panel.png) | |
+
 ## Architecture at a Glance
 
 ```
