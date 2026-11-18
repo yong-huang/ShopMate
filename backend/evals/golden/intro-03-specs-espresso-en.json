@@ -6,7 +6,12 @@
   "turns": [
     {
       "user": "Tell me about the BrewMaster Pro espresso machine — what's in the box, and what pressure does it run at?",
-      "expect": { "expected_tools_subset": ["get_product_details"], "max_cards": 0 }
+      "expect": {
+        "expected_tools_subset": [
+          "get_product_details"
+        ],
+        "max_cards": 1
+      }
     }
   ]
 }

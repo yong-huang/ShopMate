@@ -143,7 +143,10 @@ class Judge:
             if product is None:
                 blocks.append(f"{product_id}: NOT IN CATALOG")
                 continue
-            specs = "; ".join(f"{spec.label}={spec.value}" for spec in product.specs[:6])
+            specs = "; ".join(
+                f"{spec['label']}={spec['value']}" if isinstance(spec, dict) else f"{spec.label}={spec.value}"
+                for spec in product.specs[:6]
+            )
             blocks.append(
                 f"{product.id} | {product.name_en} | {product.name_zh} | "
                 f"category={product.category} | price={product.price} {product.currency} | "

@@ -39,7 +39,7 @@ from typing import Any, Callable
 
 from app.catalog.adapter import CatalogAdapter
 from app.catalog.schemas import ProductDetail
-from app.gateway.events import ChatEvent, FinishEvent, TokenDeltaEvent
+from app.gateway.events import ChatEvent, FinishEvent, TokenDeltaEvent, ToolCallEvent
 from app.gateway.messages import ChatMessage
 from app.gateway.tools import ToolCall
 from evals.judge.client import JUDGE_WEIGHTS, JudgeVerdict
@@ -116,6 +116,7 @@ class TurnPlan:
     """One turn's scripted flow: tool streams + a final reply stream."""
 
     user: str
+    turn: Turn
     tool_steps: list[ToolStep] = field(default_factory=list)
     reply: str = ""
     usage: dict | None = None
@@ -230,12 +231,23 @@ class HermeticScriptedModel:
             plans.append(
                 TurnPlan(
                     user=turn.user,
+                    turn=turn,
                     tool_steps=steps,
                     reply=reply,
                     usage={"prompt_tokens": 90, "completion_tokens": 40},
                 )
             )
         return plans
+
+    def _tool_progress_line(self, scenario: Scenario, turn: Turn) -> str:
+        """The pre-tool-call token, language-matched (mirrors Maya's mirroring).
+
+        Without this, English progress tokens dilute a Chinese reply's CJK
+        ratio below the production detection threshold and the language
+        check fires on scripted runs.
+        """
+        lang = turn.expect.language or scenario.lang
+        return "我来帮您查一下。" if lang == "zh" else "Let me check that for you."
 
     def _targets_for(self, turn: Turn, products: list[ProductDetail]) -> list[ProductDetail]:
         """Best name-mention matches in the user text (fallback: first products)."""
@@ -383,10 +395,10 @@ class HermeticScriptedModel:
             return
         kind, payload = flat[step_index]
         if kind == "tool":
-            name, args = payload
+            name, args, progress = payload
             if callable(args):
                 args = args(messages)
-            yield TokenDeltaEvent(text="Let me check that for you.")
+            yield TokenDeltaEvent(text=progress)
             yield ToolCallEvent(
                 call=ToolCall(id=f"fake-{step_index}", name=name, arguments=args)
             )
@@ -400,7 +412,8 @@ class HermeticScriptedModel:
         flat: list[tuple[str, Any]] = []
         for plan in self._plans:
             for step in plan.tool_steps:
-                flat.append(("tool", (step.name, step.args)))
+                progress = self._tool_progress_line(self.scenario, plan.turn)
+                flat.append(("tool", (step.name, step.args, progress)))
             flat.append(("reply", plan))
         return flat
 

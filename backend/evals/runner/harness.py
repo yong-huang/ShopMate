@@ -80,8 +80,14 @@ async def eval_app(
     keyword-only retrieval). Live provider runs pass ambient settings with
     the database URLs overridden onto the temp dir.
     """
-    async with eval_app_generator(settings=settings, chat_client=chat_client) as app:
-        yield app
+    agen = eval_app_generator(settings=settings, chat_client=chat_client)
+    try:
+        yield await agen.__anext__()
+    finally:
+        try:  # drive the generator to exhaustion so its cleanup runs
+            await agen.__anext__()
+        except StopAsyncIteration:
+            pass
 
 
 async def seed_profile(app: FastAPI, user_id: str, profile_data: dict) -> None:

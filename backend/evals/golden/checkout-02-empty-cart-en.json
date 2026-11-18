@@ -2,11 +2,16 @@
   "id": "checkout-empty-cart-en",
   "category": "checkout",
   "lang": "en",
-  "title": "Checkout with an empty cart is refused",
+  "title": "Empty-cart checkout is refused after verifying the cart",
   "turns": [
     {
       "user": "Check out please.",
-      "expect": { "expected_tools_subset": ["checkout"], "max_cards": 0 }
+      "expect": {
+        "expected_tools_subset": [
+          "get_cart"
+        ],
+        "max_cards": 0
+      }
     }
   ]
 }

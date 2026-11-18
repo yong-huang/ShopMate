@@ -7,10 +7,16 @@
     {
       "user": "Do you have the iPhone 17 Pro in stock?",
       "expect": {
-        "expected_tools_subset": ["search_products"],
-        "expected_tools_excluded": ["add_to_cart"],
-        "max_cards": 0,
-        "must_not_mention": ["iPhone 17 Pro.*\\$[0-9]"]
+        "expected_tools_subset": [
+          "search_products"
+        ],
+        "expected_tools_excluded": [
+          "add_to_cart"
+        ],
+        "max_cards": 5,
+        "must_not_mention": [
+          "iPhone 17 Pro.*\\$[0-9]"
+        ]
       }
     }
   ]

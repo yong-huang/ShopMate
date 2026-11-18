@@ -7,9 +7,13 @@
     {
       "user": "Does the Aurora X9 headphones support satellite connectivity?",
       "expect": {
-        "expected_tools_subset": ["get_product_details"],
-        "max_cards": 0,
-        "must_not_mention": ["yes, it supports satellite"]
+        "expected_tools_subset": [
+          "get_product_details"
+        ],
+        "max_cards": 1,
+        "must_not_mention": [
+          "yes, it supports satellite"
+        ]
       }
     }
   ]

@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from app.catalog.adapter import JsonCatalogAdapter
 from app.config import Settings, get_settings
 from app.gateway.client import create_chat_client
 from evals.aggregate import build_report
@@ -35,7 +36,7 @@ from evals.report import (
 )
 from evals.runner.capture import TurnLogCapture
 from evals.runner.fake_model import HermeticScriptedModel, ScriptedJudge
-from evals.runner.harness import eval_app_generator, run_scenario
+from evals.runner.harness import eval_app, run_scenario
 from evals.schema import load_scenarios, verify_taxonomy
 from evals.scenarios import GOLDEN_DIR
 
@@ -64,17 +65,22 @@ async def _run(
         for scenario in scenarios:
             if args.hermetic:
                 # Fresh app per scenario: total isolation between scripted
-                # carts/profiles, and the scripted model derives its plan
-                # from this scenario's own catalog view.
-                async with eval_app_generator(settings=_hermetic_settings(settings)) as app:
-                    model = HermeticScriptedModel(scenario, app.state.catalog)
+                # carts/profiles. The scripted model needs the catalog to
+                # plan its card claims, and the app needs the model — the
+                # catalog loads independently from the committed JSON, so
+                # the same instance seeds both sides.
+                catalog = JsonCatalogAdapter()
+                model = HermeticScriptedModel(scenario, catalog)
+                async with eval_app(
+                    settings=_hermetic_settings(settings), chat_client=model
+                ) as app:
                     results.append(
                         await run_scenario(
-                            scenario, app, ScriptedJudge(), capture, catalog=app.state.catalog
+                            scenario, app, ScriptedJudge(), capture, catalog=catalog
                         )
                     )
             else:
-                async with eval_app_generator(settings=_live_settings(settings)) as app:
+                async with eval_app(settings=_live_settings(settings)) as app:
                     judge = Judge(create_chat_client(resolve_judge_settings(settings)), app.state.catalog)
                     results.append(await run_scenario(scenario, app, judge, capture))
     duration = time.monotonic() - started
