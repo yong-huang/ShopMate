@@ -24,7 +24,9 @@ from app.gateway.messages import ChatMessage
 from app.gateway.providers import ResolvedEndpoint, resolve_endpoint
 from app.gateway.tools import ToolCall, ToolSpec
 
-DEFAULT_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+# Read window sized for slow local generations (a stalled stream raises
+# ReadTimeout after 5 min and is mapped to a typed provider error).
+DEFAULT_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 
 
 @dataclass
@@ -85,49 +87,64 @@ class OpenAICompatChatClient(ChatClient):
 
         finish_reason: str | None = None
         pending_calls: dict[int, _PendingToolCall] = {}
-        async with self._http.stream(
-            "POST", self._endpoint.chat_url, headers=headers, json=body
-        ) as response:
-            if response.status_code >= 400:
-                raw_body = (await response.aread()).decode("utf-8", errors="replace")
-                raise ProviderHTTPError(
-                    provider=self._endpoint.provider,
-                    status_code=response.status_code,
-                    body_snippet=raw_body[:500],
-                )
-            async for line in response.aiter_lines():
-                if not line.startswith("data:"):
-                    continue  # blank lines, SSE comments, other fields
-                payload = line[len("data:"):].strip()
-                if payload == "[DONE]":
-                    break
-                if not payload:
-                    continue
-                try:
-                    chunk = json.loads(payload)
-                except ValueError:
-                    raise ProviderResponseError(
+        try:
+            async with self._http.stream(
+                "POST", self._endpoint.chat_url, headers=headers, json=body
+            ) as response:
+                if response.status_code >= 400:
+                    raw_body = (await response.aread()).decode("utf-8", errors="replace")
+                    raise ProviderHTTPError(
                         provider=self._endpoint.provider,
-                        detail=payload[:200],
-                    ) from None
-                choices = chunk.get("choices") or []
-                if not choices:
-                    continue  # e.g. usage-only trailing chunk
-                delta = choices[0].get("delta") or {}
-                text = delta.get("content")
-                if text:
-                    yield TokenDeltaEvent(text=text)
-                for call_delta in delta.get("tool_calls") or []:
-                    index = call_delta.get("index", 0)
-                    pending = pending_calls.setdefault(index, _PendingToolCall())
-                    if call_delta.get("id"):
-                        pending.id = call_delta["id"]
-                    function = call_delta.get("function") or {}
-                    if function.get("name"):
-                        pending.name_parts.append(function["name"])
-                    if function.get("arguments"):
-                        pending.argument_parts.append(function["arguments"])
-                finish_reason = choices[0].get("finish_reason") or finish_reason
+                        status_code=response.status_code,
+                        body_snippet=raw_body[:500],
+                    )
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue  # blank lines, SSE comments, other fields
+                    payload = line[len("data:"):].strip()
+                    if payload == "[DONE]":
+                        break
+                    if not payload:
+                        continue
+                    try:
+                        chunk = json.loads(payload)
+                    except ValueError:
+                        raise ProviderResponseError(
+                            provider=self._endpoint.provider,
+                            detail=payload[:200],
+                        ) from None
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue  # e.g. usage-only trailing chunk
+                    delta = choices[0].get("delta") or {}
+                    text = delta.get("content")
+                    if text:
+                        yield TokenDeltaEvent(text=text)
+                    for call_delta in delta.get("tool_calls") or []:
+                        index = call_delta.get("index", 0)
+                        pending = pending_calls.setdefault(index, _PendingToolCall())
+                        if call_delta.get("id"):
+                            pending.id = call_delta["id"]
+                        function = call_delta.get("function") or {}
+                        if function.get("name"):
+                            pending.name_parts.append(function["name"])
+                        if function.get("arguments"):
+                            pending.argument_parts.append(function["arguments"])
+                    finish_reason = choices[0].get("finish_reason") or finish_reason
+        except httpx.TimeoutException as exc:
+            # Local models can stall mid-stream; surface a typed GatewayError
+            # so callers (chat endpoint, judge retry) degrade honestly.
+            raise ProviderHTTPError(
+                provider=self._endpoint.provider,
+                status_code=None,
+                body_snippet=f"{type(exc).__name__}: {exc}",
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ProviderHTTPError(
+                provider=self._endpoint.provider,
+                status_code=None,
+                body_snippet=f"{type(exc).__name__}: {exc}",
+            ) from exc
         valid_calls = _assemble_tool_calls(pending_calls)
         for call in valid_calls:
             yield ToolCallEvent(call=call)
