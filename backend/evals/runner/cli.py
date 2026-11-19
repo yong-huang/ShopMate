@@ -61,6 +61,9 @@ async def _run(
 
     started = time.monotonic()
     results = []
+    # Per-scenario watchdog: a wedged provider request must fail one scenario,
+    # not wedge a 30-minute run (§2.3 failure policy).
+    SCENARIO_TIMEOUT_S = 480.0
     with TurnLogCapture() as capture:
         for scenario in scenarios:
             if args.hermetic:
@@ -75,14 +78,31 @@ async def _run(
                     settings=_hermetic_settings(settings), chat_client=model
                 ) as app:
                     results.append(
-                        await run_scenario(
-                            scenario, app, ScriptedJudge(), capture, catalog=catalog
+                        await asyncio.wait_for(
+                            run_scenario(
+                                scenario, app, ScriptedJudge(), capture, catalog=catalog
+                            ),
+                            timeout=SCENARIO_TIMEOUT_S,
                         )
                     )
             else:
                 async with eval_app(settings=_live_settings(settings)) as app:
                     judge = Judge(create_chat_client(resolve_judge_settings(settings)), app.state.catalog)
-                    results.append(await run_scenario(scenario, app, judge, capture))
+
+                    async def _live_run(scenario=scenario, app=app, judge=judge):
+                        return await run_scenario(scenario, app, judge, capture)
+
+                    try:
+                        results.append(await asyncio.wait_for(_live_run(), timeout=SCENARIO_TIMEOUT_S))
+                    except (asyncio.TimeoutError, TimeoutError):
+                        from evals.runner.harness import ScenarioResult
+
+                        skeleton = ScenarioResult(scenario=scenario, session_id="", user_id="")
+                        skeleton.failures = [
+                            f"scenario timeout after {SCENARIO_TIMEOUT_S:.0f}s "
+                            "(provider request wedged; see server logs)"
+                        ]
+                        results.append(skeleton)
     duration = time.monotonic() - started
 
     provider, model = _provider_tag(settings)
