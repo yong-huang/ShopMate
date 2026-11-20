@@ -1,8 +1,10 @@
 """Agent tool registry (System Design 3.3).
 
-T04 wired the trivial ``get_store_info`` tool so the LangGraph loop is real;
-T05 registers the catalog tools (``search_products``, ``get_product_details``,
-``compare_products``) on the same seam. Cart tools belong to T06.
+The registry is the seam the tool groups register on: the catalog tools
+(``search_products``, ``get_product_details``, ``compare_products``) via
+``app.agent.catalog_tools`` and the cart/checkout tools via
+``app.cart.tools`` — seven LLM-callable tools in v1 (the T04 loop placeholder
+``get_store_info`` was retired once the real tools landed).
 
 Tools return ``(content, ok)``; failures are honest strings the model can
 see, never fabricated results. Catalog executors may return a
@@ -20,19 +22,6 @@ from typing import Any
 from app.gateway.tools import ToolSpec
 
 MAX_TOOL_HOPS = 6  # bounded tool hops per turn (System Design 3.2)
-
-STORE_INFO_TOOL = ToolSpec(
-    name="get_store_info",
-    description="Return general information about the ShopMate store "
-    "(what it sells, shipping, returns). Use for store-level questions.",
-    parameters={"type": "object", "properties": {}, "required": []},
-)
-
-STORE_INFO_BLURB = (
-    "ShopMate is a demo store with four categories: Electronics, "
-    "Home & Kitchen, Apparel & Accessories, and Sports & Outdoors "
-    "(150 products). Free shipping over $50; 30-day returns on everything."
-)
 
 
 @dataclass
@@ -56,12 +45,6 @@ class ToolOutput:
 # shopper (``user_id``) and the chat session (``session_id``) the tools node
 # passes through from the request. Plain tools ignore it.
 Executor = Callable[[dict[str, Any], dict[str, Any] | None], Awaitable[tuple[str, bool] | ToolOutput]]
-
-
-async def _store_info_executor(
-    _arguments: dict[str, Any], _context: dict[str, Any] | None = None
-) -> tuple[str, bool]:
-    return STORE_INFO_BLURB, True
 
 
 class ToolRegistry:
@@ -96,10 +79,13 @@ class ToolRegistry:
 
 
 def tool_registry() -> ToolRegistry:
-    """The default registry with every tool this ticket provides."""
-    registry = ToolRegistry()
-    registry.register(STORE_INFO_TOOL, _store_info_executor)
-    return registry
+    """The base registry the composition root registers the tool groups on.
+
+    Deliberately empty: §3.3's seven real tools (catalog + cart) self-register
+    via ``register_catalog_tools`` / ``register_cart_tools``; the T04
+    placeholder ``get_store_info`` is retired.
+    """
+    return ToolRegistry()
 
 
 def summarize_arguments(arguments: dict[str, Any]) -> str:

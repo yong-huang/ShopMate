@@ -445,7 +445,8 @@ def build_agent_graph(
     """Compile the Maya graph.
 
     ``client`` is injected (composition root / tests) per ADR-001; ``tools``
-    defaults to this ticket's registry (placeholder ``get_store_info``).
+    defaults to the base ``tool_registry()`` — the composition root registers
+    the full §3.3 tool set on it, and tests may register their own.
     ``checkpointer`` (SqliteSaver family) gives one thread per session.
     ``adapter`` is the catalog the guardrail validates against (3.5) and
     defaults to the committed demo catalog.

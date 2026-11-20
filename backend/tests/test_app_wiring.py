@@ -1,9 +1,9 @@
 """Composition-root wiring (T05/T06): full registry + retrieval index lifespan.
 
 Seam: ``create_app`` — the app must build the graph over the FULL tool
-registry (store info + the three catalog tools + the four cart tools) and
-construct the hybrid retrieval index once at startup, so chat turns search
-the real catalog and share the shopper's cart with the storefront.
+registry (the three catalog tools + the four cart tools) and construct the
+hybrid retrieval index once at startup, so chat turns search the real
+catalog and share the shopper's cart with the storefront.
 """
 
 import uuid
@@ -26,7 +26,6 @@ async def test_app_builds_index_and_full_registry_at_startup(tmp_path):
         assert index.vectors_enabled is False  # embedding_provider=none
         tool_names = [spec.name for spec in app.state.tool_registry.specs()]
         assert tool_names == [
-            "get_store_info",
             "search_products",
             "get_product_details",
             "compare_products",

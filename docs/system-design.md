@@ -65,7 +65,7 @@ ShopMate is a conversational shopping assistant (persona: **Maya**) embedded in 
 │  │                  │  extraction + merge)     │   │  SQLAlchemy)    ││
 │  └──────────────────┴──────────────────────────┘   └─────────────────┘│
 └───────────────────────────────────────────────────────────────────────┘
-        Embeddings: Ollama bge-m3 on host (fallback: GLM embedding → none)
+        Embeddings: Ollama bge-m3 on host (fallback: keyword-only; GLM embedding deferred)
         Ollama access from containers: http://host.docker.internal:11434
 ```
 
@@ -166,7 +166,7 @@ Seven LLM-callable tools. Schemas are OpenAI function-calling JSON Schema.
 
 Notes:
 
-- Tool outputs are **the only source** of product data the model may present (P3). Card payloads are attached to `pending_cards` by the tool layer at execution time, so validation checks what the tools actually returned — not what the model claims.
+- Tool outputs are **the only source** of product data the model may present (P3). Tool results attach their structured payloads to `pending_cards` at execution time; as built, the guardrail validates the **model's** card claims against the catalog (§3.5), and the tool-attached payloads render as ground-truth cards only when the model emits no card blocks of its own (they also supply the match hints).
 - `checkout` writes an `orders` row (status `demo_paid`) and clears the cart; it refuses when the cart is empty.
 - All tools are async; catalog tools hit the in-memory index, cart/checkout tools hit SQLite.
 
@@ -187,8 +187,10 @@ Notes:
 **Embedding provider chain** (`EMBEDDING_PROVIDER=auto`):
 
 ```
-auto → try ollama (EMBEDDING_MODEL=bge-m3) → try glm embedding API → keyword-only
+auto → try ollama (EMBEDDING_MODEL=bge-m3) → keyword-only
 ```
+
+The GLM-embedding middle leg is **deferred, not built**: v1 ships auto → ollama → keyword-only (selecting `EMBEDDING_PROVIDER=glm` degrades to keyword-only). The GLM embedding client is a drop-in on the `EmbeddingProvider` seam when needed.
 
 For ~150 products the entire index is tiny (< a few MB) — no external vector store (ADR-003). Index reload is exposed as a management command, not a runtime API (prototype scope).
 
@@ -197,7 +199,7 @@ For ~150 products the entire index is tiny (< a few MB) — no external vector s
 Structured product cards are the **only** rendering path for products:
 
 1. When the model wants to show products, it emits card blocks referencing `product_id`s; the frontend renders cards **only** from validated `product_card` SSE events, never from model prose.
-2. **Validator checks** per card: (a) `product_id` exists in catalog; (b) price/rating on the card equal catalog values; (c) card payload matches the SSE card schema.
+2. **Validator checks** the *model's* card claims per card: (a) `product_id` exists in catalog; (b) price/rating on the card equal catalog values; (c) card payload matches the SSE card schema. As built, when the model emits no card blocks, the tool-attached retrieval results render instead as ground-truth cards (with their match hints).
 3. **Failure policy**: retry the `chatbot` node once with a corrective system message ("card X referenced a non-catalog product; use tool results only"); if still invalid → strip invalid cards, stream the text with no card, log a `validation_failure` for the eval harness.
 4. **Explicitly not validated**: free-text prose mentioning prices (too brittle to parse reliably); grounding there is enforced by prompt rules + eval measurement instead (documented tradeoff).
 
@@ -240,6 +242,7 @@ body: { "session_id": "uuid", "message": "..." }
 |--------|------|---------|
 | GET | `/api/products?category=&q=&sort=` | catalog browsing (storefront list) |
 | GET | `/api/products/{id}` | product detail page data |
+| POST | `/api/products/{id}/view` | interaction capture: records one product-view event (§3.6 capture stage; fire-and-forget) |
 | GET | `/api/cart` | cart page/drawer data |
 | POST | `/api/cart/items` | storefront "Add to cart" button (non-chat path) `{product_id, quantity, variant?}` |
 | PATCH | `/api/cart/items/{cart_item_id}` | update quantity |
@@ -248,6 +251,7 @@ body: { "session_id": "uuid", "message": "..." }
 | GET | `/api/profile` | preferences panel data |
 | DELETE | `/api/profile` | clear profile |
 | POST | `/api/sessions` | start a new session (triggers prior-session profile extraction) |
+| POST | `/api/sessions/{id}/end` | session end: the unload beacon (`sendBeacon`) closes the session and schedules background profile extraction |
 | GET | `/api/health` | liveness + provider/index status |
 
 Errors: JSON `{code, message}`; `4xx` for client errors, `5xx` with `error` SSE event for stream failures. All endpoints documented again in code as OpenAPI schema (FastAPI default).

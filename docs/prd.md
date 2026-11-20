@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Implemented (v1) — see GitHub issues #1–#10 and the eval gate report |
+| **Status** | v1 scope implemented — all tickets closed, hermetic eval 32/32 PASS; formal release gate on the default provider (GLM) pending `LLM_API_KEY` (see GitHub issues #1–#10 and the committed eval reports) |
 | **Version** | 1.0 |
 | **Last updated** | 2026-11-16 |
 | **Related docs** | [System Design](./system-design.md) · [Evaluation Plan](./eval-plan.md) |
@@ -136,6 +136,7 @@ ShopMate maintains an anonymous, cookie-linked profile per user.
 - **AC9.1** Assistant responses stream token-by-token (SSE).
 - **AC9.2** Tool activity is surfaced as lightweight progress indicators ("searching the catalog…").
 - **AC9.3** Product cards and cart confirmations render inline within the stream.
+- **Accepted v1 deviation (AC9.3):** structured events (cards / comparison / cart_update) are emitted within the same SSE response but positioned after the turn's text, not interleaved at production position; revisit if UX requires true interleaving.
 
 ---
 

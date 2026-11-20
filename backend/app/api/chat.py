@@ -27,6 +27,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from pydantic import BaseModel, Field, field_validator
 
+from app.agent.cards import detect_language
 from app.agent.graph import (
     AgentToolDone,
     AgentToolProgress,
@@ -60,14 +61,6 @@ logger = get_logger()
 def _sse(event: str, data: dict) -> str:
     """One SSE frame in the §3.7 shape."""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-def _detect_language(text: str) -> str | None:
-    """Best-effort en/zh detection (CJK character share) for sessions.lang."""
-    cjk = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
-    if not text.strip():
-        return None
-    return "zh" if cjk / len(text) >= 0.2 else "en"
 
 
 def _message_to_row(message) -> tuple[str, str | None, list | None]:
@@ -160,7 +153,9 @@ async def chat(request: Request, body: ChatRequest) -> StreamingResponse:
         ):
             idle_extraction_id = body.session_id
         await get_or_create_session(db, body.session_id, cookie_sid)
-        lang = _detect_language(body.message)
+        # sessions.lang uses the same shared heuristic the eval runner checks
+        # (app.agent.cards.detect_language) so production and eval agree.
+        lang = detect_language(body.message)
         if lang:
             await set_session_language(db, body.session_id, lang)
         await record_message(

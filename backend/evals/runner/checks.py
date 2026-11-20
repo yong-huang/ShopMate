@@ -20,8 +20,9 @@ Check inventory (§3.1 + §2.2):
 - ``cart``             — ``cart_expected`` vs. the cart API summary: exact
   (product_id, quantity, variant) multiset match plus optional item_count /
   total.
-- ``language``         — CJK-ratio heuristic (≥ 0.2 → zh, else en), matching
-  the endpoint's ``_detect_language`` so eval and production agree.
+- ``language``         — CJK-ratio heuristic (≥ 0.2 → zh, else en); the
+  production implementation is imported from ``app.agent.cards`` so eval and
+  the chat endpoint cannot drift.
 - ``must_not_mention`` — regex denial list over the reply text.
 - ``clarifying``       — judge-counted clarifying questions within the cap.
 - ``format``           — rendered card payloads validate against the
@@ -37,29 +38,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.agent.cards import ProductCardPayload, _CARD_BLOCK
+from app.agent.cards import ProductCardPayload, detect_language
 from app.catalog.adapter import CatalogAdapter
 from evals.schema import CartExpect, Turn, TurnExpect
-
-CJK_RATIO_ZH_THRESHOLD = 0.2  # mirrors app.api.chat._detect_language
-
-
-def strip_card_blocks(text: str) -> str:
-    """The reply as the shopper sees it: ``product-card`` fences removed.
-
-    The frontend strips card blocks before display, so language detection
-    must not let ASCII card JSON dilute the CJK ratio of a Chinese reply.
-    """
-    return _CARD_BLOCK.sub("", text)
-
-
-def detect_language(text: str) -> str | None:
-    """The production CJK-ratio heuristic: zh at ≥ 0.2 CJK share, else en."""
-    stripped = strip_card_blocks(text).strip()
-    if not stripped:
-        return None
-    cjk = sum(1 for char in stripped if "\u4e00" <= char <= "\u9fff")
-    return "zh" if cjk / len(stripped) >= CJK_RATIO_ZH_THRESHOLD else "en"
 
 
 @dataclass

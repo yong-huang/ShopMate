@@ -21,26 +21,18 @@ def test_max_tool_hops_is_six_per_turn():
     assert MAX_TOOL_HOPS == 6
 
 
-def test_registry_advertises_get_store_info_as_openai_function_schema():
-    registry = tool_registry()
-    specs = registry.specs()
-    assert all(isinstance(spec, ToolSpec) for spec in specs)
-    store_info = next(spec for spec in specs if spec.name == "get_store_info")
-    wire = store_info.to_wire()
-    assert wire["type"] == "function"
-    assert wire["function"]["name"] == "get_store_info"
-    assert wire["function"]["parameters"]["type"] == "object"
-    assert "store" in wire["function"]["description"].lower()
+def test_base_registry_is_empty_placeholder_retired():
+    """The T04 placeholder ``get_store_info`` is retired; the base registry
+    stays empty and the §3.3 seven tools register at composition time."""
+    assert tool_registry().specs() == []
 
 
-async def test_executing_get_store_info_returns_static_store_blurb():
+async def test_executing_unregistered_placeholder_fails_honestly():
     registry = tool_registry()
     output = await registry.execute("get_store_info", {})
     assert isinstance(output, ToolOutput)
-    assert output.ok is True
-    assert output.cards == []
-    assert output.comparison is None
-    assert "ShopMate" in output.content
+    assert output.ok is False
+    assert "get_store_info" in output.content
 
 
 async def test_executing_unknown_tool_fails_honestly_without_raising():

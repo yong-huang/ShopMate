@@ -96,7 +96,7 @@ async def test_stream_emits_session_token_tool_call_done_in_order(app_factory):
         [
             [
                 TokenDeltaEvent(text="Let me look that up."),
-                ToolCallEvent(call=ToolCall(id="call_1", name="get_store_info", arguments={})),
+                ToolCallEvent(call=ToolCall(id="call_1", name="get_cart", arguments={})),
                 FinishEvent(finish_reason="tool_calls"),
             ],
             [
@@ -120,14 +120,16 @@ async def test_stream_emits_session_token_tool_call_done_in_order(app_factory):
         "token",
         "tool_call",
         "token",
+        "cart_update",  # get_cart attaches the fresh summary (T06, 3.7)
         "done",
     ]
     assert events[0]["data"]["session_id"] == session_id
     assert events[0]["data"]["user_id"]
     assert events[1]["data"] == {"text": "Let me look that up."}
-    assert events[2]["data"] == {"name": "get_store_info", "args_summary": "{}"}
+    assert events[2]["data"] == {"name": "get_cart", "args_summary": "{}"}
     assert events[3]["data"] == {"text": "ShopMate sells four categories."}
-    assert isinstance(events[4]["data"]["message_id"], int)
+    assert events[4]["data"]["item_count"] == 0
+    assert isinstance(events[5]["data"]["message_id"], int)
 
 
 async def test_session_cookie_issued_on_first_request_then_reused(app_factory):
@@ -174,7 +176,7 @@ async def test_messages_persisted_including_tool_calls(app_factory, tmp_path):
         [
             [
                 TokenDeltaEvent(text="Looking it up."),
-                ToolCallEvent(call=ToolCall(id="call_9", name="get_store_info", arguments={})),
+                ToolCallEvent(call=ToolCall(id="call_9", name="get_cart", arguments={})),
                 FinishEvent(finish_reason="tool_calls"),
             ],
             [
@@ -196,8 +198,8 @@ async def test_messages_persisted_including_tool_calls(app_factory, tmp_path):
         )
     assert [row.role for row in rows] == ["user", "assistant", "tool", "assistant"]
     assert rows[0].content == "what do you sell?"
-    assert rows[1].tool_calls[0]["function"]["name"] == "get_store_info"
-    assert "ShopMate" in rows[2].content
+    assert rows[1].tool_calls[0]["function"]["name"] == "get_cart"
+    assert "item_count" in rows[2].content
     assert rows[3].content == "Here is what the store sells."
 
     async with app.state.sessionmaker() as db:
@@ -273,7 +275,7 @@ async def test_chat_turn_log_records_hops_usage_and_ok_status(app_factory, json_
         [
             [
                 TokenDeltaEvent(text="Looking."),
-                ToolCallEvent(call=ToolCall(id="call_1", name="get_store_info", arguments={})),
+                ToolCallEvent(call=ToolCall(id="call_1", name="get_cart", arguments={})),
                 FinishEvent(finish_reason="tool_calls", usage={"prompt_tokens": 90, "completion_tokens": 12}),
             ],
             [
@@ -292,6 +294,6 @@ async def test_chat_turn_log_records_hops_usage_and_ok_status(app_factory, json_
     record = turns[0]
     assert record["session_id"] == session_id
     assert record["status"] == "ok"
-    assert [hop["tool"] for hop in record["tool_hops"]] == ["get_store_info"]
+    assert [hop["tool"] for hop in record["tool_hops"]] == ["get_cart"]
     assert record["token_usage"]["prompt_tokens"] == 90
     assert record["token_usage"]["completion_tokens"] == 12

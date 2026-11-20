@@ -55,7 +55,7 @@ def create_app(
     engine, sessionmaker = create_engine_and_sessionmaker(resolved_settings.database_url)
 
     catalog: CatalogAdapter = JsonCatalogAdapter()
-    # Full tool registry (store info + catalog tools + cart/checkout tools);
+    # Full tool registry (the seven §3.3 catalog + cart/checkout tools);
     # the retrieval index is attached during lifespan startup (System
     # Design 3.4). Cart tools share the app's sessionmaker so chat and the
     # storefront REST endpoints hit the same cart rows (System Design 3.3).

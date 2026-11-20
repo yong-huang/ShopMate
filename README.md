@@ -2,7 +2,7 @@
 
 > A conversational shopping assistant for e-commerce — Maya guides shoppers from fuzzy intent to purchase, grounded strictly in the product catalog.
 
-**Status: implemented (v1 complete).** All ten implementation tickets are merged; the evaluation harness ships with the app. The release gate report was produced on the local provider preset (`ollama/qwen3:8b`); re-run `make eval` on the GLM preset when an API key is configured.
+**Status: v1 scope implemented; formal release gate pending.** All ten implementation tickets are closed and the evaluation harness ships with the app. The hermetic eval passes 32/32, and a live run on the local provider preset (`ollama/qwen3:8b`) is committed under `backend/evals/reports/` — grounding, format, and the LLM judge PASS; the discipline metrics FAIL, the documented local-model limitation. The **formal release gate on the default provider (GLM) is still pending**: set `LLM_API_KEY` and re-run `make eval` to produce it.
 
 ---
 

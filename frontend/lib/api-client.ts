@@ -94,18 +94,31 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(message, response.status, code);
 }
 
-/** Fetch backend health (liveness + configured model provider status). */
-export async function getHealth(
-  signal?: AbortSignal,
-): Promise<HealthResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/health`, {
-    signal,
-    cache: "no-store",
+/**
+ * One backend REST request: anonymous-cookie credentials on every call, and
+ * one honest `ApiError` (parsed `{code, message}` body) on any non-2xx.
+ * Every endpoint function below routes through this so the fetch/boilerplate
+ * and the error shape have a single home.
+ */
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: "include",
+    ...init,
   });
   if (!response.ok) {
     throw await parseError(response);
   }
-  return (await response.json()) as HealthResponse;
+  return (await response.json()) as T;
+}
+
+/** Fetch backend health (liveness + configured model provider status). */
+export async function getHealth(
+  signal?: AbortSignal,
+): Promise<HealthResponse> {
+  return request<HealthResponse>("/api/health", {
+    signal,
+    cache: "no-store",
+  });
 }
 
 /** Browse the catalog (category / keyword filters, sort). */
@@ -119,14 +132,10 @@ export async function getProducts(
   if (query.sort) params.set("sort", query.sort);
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(`${API_BASE_URL}/api/products${suffix}`, {
+  return request<ProductListResponse>(`/api/products${suffix}`, {
     signal,
     cache: "no-store",
   });
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return (await response.json()) as ProductListResponse;
 }
 
 /** Fetch one product's full detail; throws ApiError (404) when unknown. */
@@ -134,14 +143,10 @@ export async function getProduct(
   id: string,
   signal?: AbortSignal,
 ): Promise<ProductDetail> {
-  const response = await fetch(`${API_BASE_URL}/api/products/${encodeURIComponent(id)}`, {
-    signal,
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return (await response.json()) as ProductDetail;
+  return request<ProductDetail>(
+    `/api/products/${encodeURIComponent(id)}`,
+    { signal, cache: "no-store" },
+  );
 }
 
 /** Absolute URL for a product image served by the backend. */
@@ -184,35 +189,25 @@ export interface ProfileInteractionEvent {
 export async function getProfile(
   signal?: AbortSignal,
 ): Promise<ProfileResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/profile`, {
+  return request<ProfileResponse>("/api/profile", {
     signal,
     cache: "no-store",
-    credentials: "include",
   });
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return (await response.json()) as ProfileResponse;
 }
 
 /** Clear the profile entirely (preferences and interaction log). */
 export async function deleteProfile(signal?: AbortSignal): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/profile`, {
-    method: "DELETE",
-    signal,
-    credentials: "include",
-  });
-  if (!response.ok) {
-    throw await parseError(response);
-  }
+  // 200 with the cleared-profile body; we only care that it succeeded.
+  await request<unknown>("/api/profile", { method: "DELETE", signal });
 }
 
 /**
  * Record one product-view interaction (System Design 3.6 capture stage).
  *
  * Fire-and-forget from the product page: `keepalive` lets the request
- * complete even if the shopper navigates away immediately; failures are
- * swallowed — the interaction log is best-effort by design.
+ * complete even if the shopper navigates away immediately, and the result is
+ * never awaited or surfaced, so this stays a bare fetch (no shared request
+ * wrapper, nothing to throw); the interaction log is best-effort by design.
  */
 export function recordProductView(productId: string): void {
   fetch(`${API_BASE_URL}/api/products/${encodeURIComponent(productId)}/view`, {
@@ -272,33 +267,20 @@ export interface OrderPayload {
 
 /** Fetch the shopper's cart (empty summary before anything is added). */
 export async function getCart(signal?: AbortSignal): Promise<CartSummary> {
-  const response = await fetch(`${API_BASE_URL}/api/cart`, {
-    signal,
-    cache: "no-store",
-    credentials: "include",
-  });
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return (await response.json()) as CartSummary;
+  return request<CartSummary>("/api/cart", { signal, cache: "no-store" });
 }
 
 /** Add one product line (optionally with size/color variant) to the cart. */
-export async function addCartItem(request: {
+export async function addCartItem(body: {
   product_id: string;
   quantity?: number;
   variant?: Record<string, string>;
 }): Promise<CartSummary> {
-  const response = await fetch(`${API_BASE_URL}/api/cart/items`, {
+  return request<CartSummary>("/api/cart/items", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(request),
+    body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return (await response.json()) as CartSummary;
 }
 
 /** Update one cart line's quantity. */
@@ -306,33 +288,24 @@ export async function updateCartItem(
   cartItemId: number,
   quantity: number,
 ): Promise<CartSummary> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/cart/items/${encodeURIComponent(String(cartItemId))}`,
+  return request<CartSummary>(
+    `/api/cart/items/${encodeURIComponent(String(cartItemId))}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify({ quantity }),
     },
   );
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return (await response.json()) as CartSummary;
 }
 
 /** Remove one cart line. */
 export async function removeCartItem(
   cartItemId: number,
 ): Promise<CartSummary> {
-  const response = await fetch(
-    `${API_BASE_URL}/api/cart/items/${encodeURIComponent(String(cartItemId))}`,
-    { method: "DELETE", credentials: "include" },
+  return request<CartSummary>(
+    `/api/cart/items/${encodeURIComponent(String(cartItemId))}`,
+    { method: "DELETE" },
   );
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return (await response.json()) as CartSummary;
 }
 
 /**
@@ -342,14 +315,9 @@ export async function removeCartItem(
 export async function checkoutCart(
   shippingNote?: string,
 ): Promise<OrderPayload> {
-  const response = await fetch(`${API_BASE_URL}/api/checkout`, {
+  return request<OrderPayload>("/api/checkout", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    credentials: "include",
     body: JSON.stringify({ shipping_note: shippingNote ?? null }),
   });
-  if (!response.ok) {
-    throw await parseError(response);
-  }
-  return (await response.json()) as OrderPayload;
 }

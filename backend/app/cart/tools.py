@@ -15,6 +15,7 @@ without it the cart tools fail honestly instead of guessing a shopper.
 """
 
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
@@ -129,41 +130,62 @@ class CartTools:
             )
         return str(context["user_id"]), context.get("session_id")
 
+    async def _in_session(
+        self,
+        run: Callable[[AsyncSession], Awaitable[tuple[Any, dict[str, Any] | None]]],
+    ) -> ToolOutput:
+        """The shared cart-tool tail: session → service call → commit → ToolOutput.
+
+        ``run`` performs the service call and returns ``(model_payload,
+        cart_summary)``. A ``CartError`` becomes an honest tool error (3.3)
+        so the model can self-correct; success wraps the payload as pretty
+        JSON for the model with the structured summary attached for the SSE
+        ``cart_update`` event (3.7).
+        """
+        try:
+            async with self._sessionmaker() as db:
+                payload, summary = await run(db)
+                await db.commit()
+        except CartError as exc:
+            return _honest_cart_error(exc)
+        return ToolOutput(
+            content=json.dumps(payload, ensure_ascii=False, indent=1),
+            ok=True,
+            cart_summary=summary,
+        )
+
     async def add_to_cart(
         self, arguments: dict[str, Any], context: dict[str, Any] | None = None
     ) -> ToolOutput:
         try:
             user_id, session_id = self._identity(context)
-            async with self._sessionmaker() as db:
-                summary = await add_item(
-                    db,
-                    self._catalog,
-                    user_id,
-                    product_id=arguments.get("product_id"),
-                    quantity=arguments.get("quantity", 1),
-                    variant=arguments.get("variant"),
-                    session_id=session_id,
-                )
-                await db.commit()
         except CartError as exc:
             return _honest_cart_error(exc)
-        return ToolOutput(
-            content=json.dumps(summary, ensure_ascii=False, indent=1),
-            ok=True,
-            cart_summary=summary,
-        )
+
+        async def run(db: AsyncSession) -> tuple[Any, dict[str, Any] | None]:
+            summary = await add_item(
+                db,
+                self._catalog,
+                user_id,
+                product_id=arguments.get("product_id"),
+                quantity=arguments.get("quantity", 1),
+                variant=arguments.get("variant"),
+                session_id=session_id,
+            )
+            return summary, summary
+
+        return await self._in_session(run)
 
     async def get_cart(
         self, arguments: dict[str, Any], context: dict[str, Any] | None = None
     ) -> ToolOutput:
         user_id, _ = self._identity(context)
-        async with self._sessionmaker() as db:
+
+        async def run(db: AsyncSession) -> tuple[Any, dict[str, Any] | None]:
             summary = await cart_summary(db, self._catalog, user_id)
-        return ToolOutput(
-            content=json.dumps(summary, ensure_ascii=False, indent=1),
-            ok=True,
-            cart_summary=summary,
-        )
+            return summary, summary
+
+        return await self._in_session(run)
 
     async def remove_from_cart(
         self, arguments: dict[str, Any], context: dict[str, Any] | None = None
@@ -176,45 +198,35 @@ class CartTools:
                 "line (call get_cart to list them).",
                 ok=False,
             )
-        async with self._sessionmaker() as db:
-            try:
-                summary = await remove_item(db, self._catalog, user_id, cart_item_id)
-                await db.commit()
-            except CartError as exc:
-                return _honest_cart_error(exc)
-            return ToolOutput(
-                content=json.dumps(summary, ensure_ascii=False, indent=1),
-                ok=True,
-                cart_summary=summary,
-            )
+
+        async def run(db: AsyncSession) -> tuple[Any, dict[str, Any] | None]:
+            summary = await remove_item(db, self._catalog, user_id, cart_item_id)
+            return summary, summary
+
+        return await self._in_session(run)
 
     async def checkout(
         self, arguments: dict[str, Any], context: dict[str, Any] | None = None
     ) -> ToolOutput:
         user_id, session_id = self._identity(context)
-        async with self._sessionmaker() as db:
-            try:
-                order = await checkout(
-                    db,
-                    self._catalog,
-                    user_id,
-                    session_id=session_id,
-                    shipping_note=arguments.get("shipping_note"),
-                )
-                await db.commit()
-            except CartError as exc:
-                return _honest_cart_error(exc)
-        summary = {
-            "items": [],
-            "item_count": 0,
-            "total": 0.0,
-            "currency": order["currency"],
-        }
-        return ToolOutput(
-            content=json.dumps(order, ensure_ascii=False, indent=1),
-            ok=True,
-            cart_summary=summary,
-        )
+
+        async def run(db: AsyncSession) -> tuple[Any, dict[str, Any] | None]:
+            order = await checkout(
+                db,
+                self._catalog,
+                user_id,
+                session_id=session_id,
+                shipping_note=arguments.get("shipping_note"),
+            )
+            summary = {
+                "items": [],
+                "item_count": 0,
+                "total": 0.0,
+                "currency": order["currency"],
+            }
+            return order, summary
+
+        return await self._in_session(run)
 
 
 def _honest_cart_error(exc: CartError) -> ToolOutput:

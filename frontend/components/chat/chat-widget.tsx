@@ -121,19 +121,24 @@ export function ChatWidget() {
     if (scroller) scroller.scrollTop = scroller.scrollHeight;
   }, [messages, partial, toolProgress, open, expanded]);
 
+  /** Clear the in-flight turn buffers (refs + mirrored stream UI state). */
+  function resetTurn() {
+    partialRef.current = "";
+    cardsRef.current = [];
+    comparisonRef.current = null;
+    cartRef.current = null;
+    setPartial("");
+    setToolProgress(null);
+  }
+
   function startNewChat() {
     abortRef.current?.abort();
     const fresh = crypto.randomUUID();
     window.localStorage.setItem(SESSION_KEY, fresh);
     setSessionId(fresh);
     setMessages([GREETING]);
-    setPartial("");
-    partialRef.current = "";
-    cardsRef.current = [];
-    comparisonRef.current = null;
-    cartRef.current = null;
+    resetTurn();
     setErrorText(null);
-    setToolProgress(null);
   }
 
   async function send() {
@@ -145,11 +150,7 @@ export function ChatWidget() {
     setDraft("");
     setErrorText(null);
     setStreaming(true);
-    setPartial("");
-    partialRef.current = "";
-    cardsRef.current = [];
-    comparisonRef.current = null;
-    cartRef.current = null;
+    resetTurn();
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -222,12 +223,7 @@ export function ChatWidget() {
           },
         ]);
       }
-      partialRef.current = "";
-      cardsRef.current = [];
-      comparisonRef.current = null;
-      cartRef.current = null;
-      setPartial("");
-      setToolProgress(null);
+      resetTurn();
       setStreaming(false);
       abortRef.current = null;
     }

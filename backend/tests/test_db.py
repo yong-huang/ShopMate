@@ -87,7 +87,7 @@ async def test_record_message_persists_role_content_and_tool_calls(db):
                 {
                     "id": "call_1",
                     "type": "function",
-                    "function": {"name": "get_store_info", "arguments": "{}"},
+                    "function": {"name": "get_cart", "arguments": "{}"},
                 }
             ],
         )
@@ -102,7 +102,7 @@ async def test_record_message_persists_role_content_and_tool_calls(db):
         assert [row.role for row in rows] == ["user", "assistant"]
         assert rows[0].content == "trail shoes?"
         assert rows[0].tool_calls is None
-        assert rows[1].tool_calls[0]["function"]["name"] == "get_store_info"
+        assert rows[1].tool_calls[0]["function"]["name"] == "get_cart"
         assert all(row.created_at is not None for row in rows)
         assert all(row.session_id == session_id for row in rows)
 

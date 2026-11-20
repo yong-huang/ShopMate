@@ -12,6 +12,7 @@ import uuid
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from app.agent.catalog_tools import register_catalog_tools
 from app.agent.graph import (
     DEGRADATION_MESSAGE,
     MAX_TOOL_HOPS,
@@ -25,6 +26,8 @@ from app.agent.graph import (
     open_checkpointer,
     stream_agent_turn,
 )
+from app.agent.tools import tool_registry
+from app.catalog.adapter import JsonCatalogAdapter
 from app.gateway.errors import ToolCallDegradationError
 from app.gateway.events import (
     FinishEvent,
@@ -32,8 +35,11 @@ from app.gateway.events import (
     ToolCallEvent,
 )
 from app.gateway.tools import ToolCall
+from app.retrieval.index import RetrievalIndex
 
 from .mocks import ScriptedChatClient
+
+ADAPTER = JsonCatalogAdapter()
 
 # Checkpointers opened during one test; closed afterwards so no aiosqlite
 # worker thread outlives the test's event loop.
@@ -50,10 +56,20 @@ async def _close_checkpointers():
 
 
 async def _new_graph(tmp_path, client):
-    """A compiled graph over a fresh checkpointer file (auto-closed)."""
+    """A compiled graph over a fresh checkpointer file (auto-closed).
+
+    The registry carries the real catalog tools over a keyword-only index,
+    so the tool loop runs against the committed catalog (placeholder
+    ``get_store_info`` is retired).
+    """
+    index = await RetrievalIndex.build(ADAPTER)
+    registry = tool_registry()
+    register_catalog_tools(registry, ADAPTER, index)
     saver = await open_checkpointer(tmp_path / "ck.db")
     _OPEN_SAVERS.append(saver)
-    return build_agent_graph(client=client, tools=None, checkpointer=saver)
+    return build_agent_graph(
+        client=client, tools=registry, checkpointer=saver, adapter=ADAPTER
+    )
 
 
 def _text_stream(text: str) -> list:
@@ -67,7 +83,7 @@ def _tool_call_stream(call_id: str = "call_1", **arguments) -> list:
     return [
         TokenDeltaEvent(text="Let me look that up."),
         ToolCallEvent(
-            call=ToolCall(id=call_id, name="get_store_info", arguments=dict(arguments))
+            call=ToolCall(id=call_id, name="search_products", arguments=dict(arguments))
         ),
         FinishEvent(finish_reason="tool_calls"),
     ]
@@ -106,13 +122,13 @@ async def test_chatbot_sends_maya_system_prompt_and_gateway_wire_messages(tmp_pa
     assert wire[1] == {"role": "user", "content": "hello"}
     # The tool set is advertised even when the model chooses not to call.
     assert client.calls[0].tools is not None
-    assert any(spec.name == "get_store_info" for spec in client.calls[0].tools)
+    assert any(spec.name == "search_products" for spec in client.calls[0].tools)
 
 
 async def test_tool_loop_executes_tool_and_feeds_result_back(tmp_path):
     client = ScriptedChatClient(
         [
-            _tool_call_stream("call_1"),
+            _tool_call_stream("call_1", query="wireless headphones"),
             _text_stream("ShopMate sells four categories of products."),
         ]
     )
@@ -124,7 +140,9 @@ async def test_tool_loop_executes_tool_and_feeds_result_back(tmp_path):
     ]
 
     progress = [event for event in events if isinstance(event, AgentToolProgress)]
-    assert [(p.name, p.args_summary) for p in progress] == [("get_store_info", "{}")]
+    assert [(p.name, p.args_summary) for p in progress] == [
+        ("search_products", '{"query":"wireless headphones"}')
+    ]
     done = [event for event in events if isinstance(event, AgentToolDone)]
     assert len(done) == 1
     assert done[0].ok is True
@@ -140,15 +158,15 @@ async def test_tool_loop_executes_tool_and_feeds_result_back(tmp_path):
                 "id": "call_1",
                 "type": "function",
                 "function": {
-                    "name": "get_store_info",
-                    "arguments": "{}",
+                    "name": "search_products",
+                    "arguments": '{"query": "wireless headphones"}',
                 },
             }
         ],
     }
     assert second[-1]["role"] == "tool"
     assert second[-1]["tool_call_id"] == "call_1"
-    assert "ShopMate" in second[-1]["content"]
+    assert "ELE-001" in second[-1]["content"]
 
     state = await graph.aget_state({"configurable": {"thread_id": thread_id}})
     messages = state.values["messages"]
@@ -161,7 +179,10 @@ async def test_tool_hop_limit_stops_execution_after_six_hops(tmp_path):
     # A model stuck in a loop requests the same tool forever; the graph must
     # execute exactly MAX_TOOL_HOPS calls, then close the turn honestly.
     client = ScriptedChatClient(
-        [_tool_call_stream(f"call_{index}") for index in range(1, MAX_TOOL_HOPS + 1)]
+        [
+            _tool_call_stream(f"call_{index}", query="trail shoes")
+            for index in range(1, MAX_TOOL_HOPS + 1)
+        ]
     )
     graph = await _new_graph(tmp_path, client)
     thread_id = uuid.uuid4().hex

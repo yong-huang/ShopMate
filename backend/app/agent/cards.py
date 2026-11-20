@@ -12,6 +12,11 @@ Product cards are the only rendering path for products (System Design 3.5):
   must exist, the claimed price/rating must equal catalog values, and the
   payload shape must match the schema. Any violation names a reason so the
   agent graph can retry once, then strip (3.5 failure policy).
+
+The module also hosts the two small text helpers shared by the chat endpoint
+and the eval runner: :func:`strip_card_blocks` and the en/zh
+:func:`detect_language` heuristic — one definition so production and eval
+cannot drift.
 """
 
 import json
@@ -27,11 +32,13 @@ from app.catalog.schemas import ProductSummary
 
 # Price/rating equality tolerance: JSON round-trips of catalog floats must
 # compare equal even after the model copies them through its own text.
-PRICE_TOLERANCE = 1e-9
+CLAIM_TOLERANCE = 1e-9
 
-_CARD_BLOCK = re.compile(
+CARD_BLOCK = re.compile(
     r"```product-card\s*\n(?P<body>.*?)\n?\s*```", re.DOTALL
 )
+
+CJK_RATIO_ZH_THRESHOLD = 0.2  # zh at ≥ 0.2 CJK character share
 
 CLAIM_KEYS = {"product_id", "price", "rating"}
 
@@ -52,6 +59,29 @@ class ProductCardPayload(BaseModel):
 def card_image_url(product_id: str) -> str:
     """Card images are the static catalog SVGs mounted by the backend."""
     return f"/static/catalog/images/{product_id}.svg"
+
+
+def strip_card_blocks(text: str) -> str:
+    """The reply as the shopper sees it: ``product-card`` fences removed.
+
+    The frontend strips card blocks before display, so language detection
+    must not let ASCII card JSON dilute the CJK ratio of a Chinese reply.
+    """
+    return CARD_BLOCK.sub("", text)
+
+
+def detect_language(text: str) -> str | None:
+    """The production en/zh heuristic: zh at ≥ 0.2 CJK share, else en.
+
+    Shared by the chat endpoint (``sessions.lang``) and the eval runner's
+    ``language`` check so the two can never disagree. ``None`` when there is
+    no text to classify.
+    """
+    stripped = strip_card_blocks(text).strip()
+    if not stripped:
+        return None
+    cjk = sum(1 for char in stripped if "\u4e00" <= char <= "\u9fff")
+    return "zh" if cjk / len(stripped) >= CJK_RATIO_ZH_THRESHOLD else "en"
 
 
 def card_from_product(product: ProductSummary, match_hint: str = "") -> ProductCardPayload:
@@ -75,7 +105,7 @@ def parse_card_blocks(text: str) -> list[dict[str, Any]]:
     text the frontend strips from display; they never become cards.
     """
     claims: list[dict[str, Any]] = []
-    for match in _CARD_BLOCK.finditer(text):
+    for match in CARD_BLOCK.finditer(text):
         try:
             value = json.loads(match.group("body"))
         except ValueError:
@@ -131,7 +161,7 @@ def validate_card(claim: Any, adapter: CatalogAdapter) -> CardIssue | None:
             reason="unknown_product",
             detail=f"product '{product_id}' does not exist in the catalog",
         )
-    if not isclose(float(price), product.price, rel_tol=PRICE_TOLERANCE, abs_tol=PRICE_TOLERANCE):
+    if not isclose(float(price), product.price, rel_tol=CLAIM_TOLERANCE, abs_tol=CLAIM_TOLERANCE):
         return CardIssue(
             product_id=product_id,
             reason="price_mismatch",
@@ -139,7 +169,7 @@ def validate_card(claim: Any, adapter: CatalogAdapter) -> CardIssue | None:
                 f"claimed price {price} for '{product_id}' but catalog says {product.price}"
             ),
         )
-    if not isclose(float(rating), product.rating, rel_tol=PRICE_TOLERANCE, abs_tol=PRICE_TOLERANCE):
+    if not isclose(float(rating), product.rating, rel_tol=CLAIM_TOLERANCE, abs_tol=CLAIM_TOLERANCE):
         return CardIssue(
             product_id=product_id,
             reason="rating_mismatch",
